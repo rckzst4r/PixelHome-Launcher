@@ -1,0 +1,6 @@
+{
+  "name": "PixelHome",
+  "description": "Stock Google Pixel-style Android home screen launcher with true superellipse squircle icons, spring physics, and Material You customization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

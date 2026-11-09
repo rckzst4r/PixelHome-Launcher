@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">Make PixelHome your default launcher</string>
+    <string name="set_default_launcher_subtitle">Enjoy squircle icons, spring physics, and Material You home customization.</string>
+    <string name="set_default_action">Set as default</string>
+    <string name="dismiss_action">Not now</string>
+    <string name="search_apps_hint">Search apps, web &amp; shortcuts</string>
+    <string name="work_profile_tab">Work</string>
+    <string name="personal_profile_tab">Personal</string>
+    <string name="wallpaper_and_style">Wallpaper &amp; style</string>
+    <string name="widgets_menu">Widgets</string>
+    <string name="home_settings">Home settings</string>
+    <string name="suggested_apps">Suggested</string>
+    <string name="all_apps">All apps</string>
+    <string name="notification_listener_label">PixelHome Notification Badges</string>
+    <string name="accessibility_lock_label">PixelHome Double-Tap Lock</string>
+    <string name="accessibility_lock_description">Allows double-tapping the home screen to lock your device screen.</string>
+</resources>
