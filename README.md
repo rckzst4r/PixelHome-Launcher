@@ -1,22 +1,55 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# PixelHome Launcher (Early Build)
 
-# Run and deploy your AI Studio app
+A Pixel-style Android home screen replacement built from the ground up using **Kotlin**, **Jetpack Compose**, **Material 3 (Material You)**, and **Coroutines / StateFlow**. 
 
-This contains everything you need to run your app locally.
+This launcher replicates the clean Google Pixel look while featuring an independent mathematical squircle rendering engine, fluid spring gestures, and deep layout customization.
 
-View your app in AI Studio: https://ai.studio/apps/e1c7a308-1be6-45da-b4d7-86dca2cd9a05
+---
 
-## Run Locally
+> ## ⚠️ Critical Disclaimers & Known Limitations
+>
+> 1. **Early Development Build:** This is an unstable early-stage release. Features may change rapidly, and unexpected crashes or layout glitches can occur.
+> 2. **Performance Notice:** The app may feel sluggish or experience frame drops depending on your device specs and number of installed apps. Optimization passes (such as Baseline Profiles and minimizing recomposition mid-gesture) are actively in progress.
+> 3. **AI-Assisted Project:** This codebase was created and architected with the assistance of artificial intelligence based on targeted design and technical prompts.
+> 4. **Xiaomi / HyperOS / MIUI Icon Color Issue:** Dynamic themed icon color tinting currently **does not work properly on Xiaomi devices**. Xiaomi's customized framework overrides standard Android AOSP `AdaptiveIconDrawable` monochrome layers and intercepts runtime `ColorFilter` graphics calls.
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+---
 
+## 📸 Overview & Features
 
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+### Core Experience
+* **Single Activity Architecture:** Fully declarative UI using Jetpack Compose and Material 3 design tokens.
+* **Pixel Home Screen:**
+  * Top "At-a-Glance" style widget (date, calendar events, weather placeholder).
+  * 5×5 configurable desktop icon grid with custom page indicators.
+  * 4-icon dock (hotseat) with an integrated bottom search pill.
+  * Native wallpaper pass-through with edge-to-edge system bar handling.
+* **App Drawer & Work Profiles:** 
+  * Swipe-up drawer driven by velocity-based spring snaps.
+  * Managed profiles (Work Profile tabs) handled cleanly via Android's `LauncherApps` API.
+* **App Shortcuts & Badging:** 
+  * Long-press icon popups using `LauncherApps.getShortcuts`.
+  * Notification badges hooked into `NotificationListenerService`.
+
+### Squircle Engine
+* **True Superellipse:** Math-driven clipping based on the formula:
+  $$\left\vert{}\frac{x}{a}\right\vert{}^n + \left\vert{}\frac{y}{b}\right\vert{}^n = 1 \quad (default\ n = 4)$$
+* Rather than a generic rounded rectangle, icons and container surfaces are shaped dynamically at draw time using `graphicsLayer` clipping without expensive runtime bitmap recreations.
+
+### Motion & Physics
+* Spring-physics gesture tracking (~0.8 damping, medium-low stiffness).
+* App opening animations expanding directly from the tapped icon's coordinate bounds.
+* Window blur support on Android 12+ (`RenderEffect` / `Window.setBackgroundBlurRadius`) with fallback scrims on older Android releases.
+
+---
+
+## 🛠️ Architecture & Tech Stack
+
+| Layer | Technologies / Libraries |
+| :--- | :--- |
+| **Language** | Kotlin |
+| **UI Framework** | Jetpack Compose (Material 3 / Material You) |
+| **Architecture** | MVVM with ViewModel, StateFlow, Coroutines |
+| **Persistence** | Room DB (Grid, Folders, Widgets), DataStore Preferences (Settings) |
+| **System APIs** | `LauncherApps`, `AppWidgetHost`, `RoleManager` |
+| **Target SDKs** | minSdk 26 (Android 8.0), compileSdk / targetSdk 34+ |
