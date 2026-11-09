@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">PixelHome をデフォルトのホームアプリに設定</string>
+    <string name="set_default_launcher_subtitle">スクワークルアイコン、スプリングアニメーション、Material You カスタマイズを体験。</string>
+    <string name="set_default_action">デフォルトに設定</string>
+    <string name="dismiss_action">後で</string>
+    <string name="search_apps_hint">アプリ、ウェブ、ショートカットを検索</string>
+    <string name="work_profile_tab">仕事用</string>
+    <string name="personal_profile_tab">個人用</string>
+    <string name="wallpaper_and_style">壁紙とスタイル</string>
+    <string name="widgets_menu">ウィジェット</string>
+    <string name="home_settings">ホーム設定</string>
+    <string name="suggested_apps">おすすめ</string>
+    <string name="all_apps">すべてのアプリ</string>
+    <string name="battery_title">バッテリー</string>
+    <string name="battery_charging">バッテリー · 充電中</string>
+    <string name="weather_mostly_sunny">おおむね晴れ</string>
+    <string name="greeting_morning">おはようございます · 快晴 · カレンダーを開く</string>
+    <string name="greeting_afternoon">デザイン同期 · 14:30 · カレンダーを開く</string>
+    <string name="greeting_evening">こんばんは · 日の入り 19:48 · カレンダー</string>
+    <string name="greeting_night">おやすみモード · タップしてカレンダーを開く</string>
+    <string name="empty_search_title">「%1$s」に一致するアプリはありません</string>
+    <string name="empty_search_subtitle">別のキーワードを試すか、下でウェブ検索してください。</string>
+    <string name="clear_search_filter">検索フィルタをクリア</string>
+    <string name="temperature_unit_label">気温の単位 (°C / °F / K)</string>
+    <string name="launcher_language_label">ランチャーの言語</string>
+    <string name="notification_listener_label">PixelHome 通知ドット</string>
+    <string name="accessibility_lock_label">PixelHome ダブルタップ画面ロック</string>
+    <string name="accessibility_lock_description">ホーム画面をダブルタップして画面をロックできます。</string>
+</resources>

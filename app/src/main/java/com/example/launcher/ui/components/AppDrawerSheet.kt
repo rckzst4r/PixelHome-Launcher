@@ -1,6 +1,7 @@
 package com.example.launcher.ui.components
 
 import android.graphics.Rect
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -27,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -42,7 +44,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shortcut
+import androidx.compose.material.icons.automirrored.filled.Shortcut
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -106,6 +108,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun AppDrawerSheet(
     progressProvider: () -> Float,
+    isVisible: Boolean = true,
     predictiveBackProgressProvider: () -> Float = { 0f },
     allApps: List<AppInfo>,
     suggestedApps: List<AppInfo>,
@@ -146,9 +149,17 @@ fun AppDrawerSheet(
 
     val pullDownToCloseConnection = remember(gridState) {
         object : NestedScrollConnection {
+            private var pullDownOverscrollAccumulated = 0f
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val currentP = progressProvider()
-                if (source == NestedScrollSource.UserInput && currentP < 0.999f && available.y < 0f) {
+                if (currentP >= 0.999f) {
+                    if (available.y < 0f) {
+                        pullDownOverscrollAccumulated = 0f
+                    }
+                    return Offset.Zero
+                }
+                if (source == NestedScrollSource.UserInput && available.y < 0f) {
                     onDragDrawerByDelta(available.y)
                     return Offset(0f, available.y)
                 }
@@ -161,19 +172,27 @@ fun AppDrawerSheet(
                 source: NestedScrollSource
             ): Offset {
                 if (source == NestedScrollSource.UserInput &&
+                    consumed.y == 0f &&
                     available.y > 0f &&
                     gridState.firstVisibleItemIndex == 0 &&
                     gridState.firstVisibleItemScrollOffset == 0
                 ) {
-                    onDragDrawerByDelta(available.y)
+                    pullDownOverscrollAccumulated += available.y
+                    if (pullDownOverscrollAccumulated > 28f) {
+                        onDragDrawerByDelta(available.y)
+                    }
                     return Offset(0f, available.y)
+                }
+                if (available.y <= 0f) {
+                    pullDownOverscrollAccumulated = 0f
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
+                pullDownOverscrollAccumulated = 0f
                 val currentP = progressProvider()
-                if (currentP < 0.99f) {
+                if (currentP < 0.96f) {
                     onSettleDrawerWithVelocity(available.y)
                     return available
                 }
@@ -182,17 +201,23 @@ fun AppDrawerSheet(
         }
     }
 
-    val filteredApps by remember(
+    val filteredApps = remember(
         allApps,
         searchQuery,
         selectedWorkTab,
         selectedCategory,
         isHiddenVaultUnlocked,
         settings.drawerSortMode,
-        settings.hiddenAppKeys
+        settings.hiddenAppKeys,
+        settings.showWorkProfileTab,
+        settings.showDrawerCategoryTabs,
+        settings.customAppOverrides,
+        settings.searchApps,
+        hasWorkProfileApps
     ) {
-        derivedStateOf {
-            val base = allApps.filter { app ->
+        val base = allApps
+            .distinctBy { it.componentKey }
+            .filter { app ->
                 val isHidden = app.componentKey in settings.hiddenAppKeys
                 val passesHiddenFilter = if (isHiddenVaultUnlocked) true else !isHidden
                 val passesProfile = if (settings.showWorkProfileTab && hasWorkProfileApps && searchQuery.isBlank()) {
@@ -215,33 +240,36 @@ fun AppDrawerSheet(
                 passesHiddenFilter && passesProfile && passesCategory && passesQuery
             }
 
-            when (settings.drawerSortMode) {
-                DrawerSortMode.A_TO_Z -> base.sortedBy {
-                    (settings.customAppOverrides[it.componentKey]?.customLabel ?: it.label).lowercase()
-                }
-                DrawerSortMode.MOST_USED -> base.sortedWith(
-                    compareByDescending<AppInfo> { it.launchCount }
-                        .thenByDescending { it.lastLaunchTimestamp }
-                        .thenBy { it.label.lowercase() }
-                )
-                DrawerSortMode.RECENT -> base.sortedByDescending { it.firstInstallTime }
+        when (settings.drawerSortMode) {
+            DrawerSortMode.A_TO_Z -> base.sortedBy {
+                (settings.customAppOverrides[it.componentKey]?.customLabel ?: it.label).lowercase()
             }
+            DrawerSortMode.MOST_USED -> base.sortedWith(
+                compareByDescending<AppInfo> { it.launchCount }
+                    .thenByDescending { it.lastLaunchTimestamp }
+                    .thenBy { it.label.lowercase() }
+            )
+            DrawerSortMode.RECENT -> base.sortedByDescending { it.firstInstallTime }
         }
     }
 
+    val uniqueSuggestedApps = remember(suggestedApps, settings.drawerColumns) {
+        suggestedApps
+            .distinctBy { it.componentKey }
+            .take(settings.drawerColumns.coerceIn(3, 7))
+    }
+
     // Matching App Shortcuts when searching and `settings.searchShortcuts` is enabled
-    val matchingShortcuts by remember(allApps, searchQuery, settings.searchShortcuts) {
-        derivedStateOf {
-            if (!settings.searchShortcuts || searchQuery.length < 2) emptyList()
-            else {
-                allApps.filter { !it.isWorkProfile }
-                    .flatMap { app -> app.shortcuts.map { app to it } }
-                    .filter { (app, shortcut) ->
-                        shortcut.shortLabel.contains(searchQuery, ignoreCase = true) ||
-                            app.label.contains(searchQuery, ignoreCase = true)
-                    }
-                    .take(4)
-            }
+    val matchingShortcuts = remember(allApps, searchQuery, settings.searchShortcuts) {
+        if (!settings.searchShortcuts || searchQuery.length < 2) emptyList()
+        else {
+            allApps.filter { !it.isWorkProfile }
+                .flatMap { app -> app.shortcuts.map { app to it } }
+                .filter { (app, shortcut) ->
+                    shortcut.shortLabel.contains(searchQuery, ignoreCase = true) ||
+                        app.label.contains(searchQuery, ignoreCase = true)
+                }
+                .take(4)
         }
     }
 
@@ -250,7 +278,10 @@ fun AppDrawerSheet(
     }
 
     val drawerIconSettings = remember(settings) {
-        settings.copy(labelColorMode = LabelColorMode.LIGHT)
+        settings.copy(
+            labelColorMode = LabelColorMode.LIGHT,
+            iconShadowEnabled = false
+        )
     }
 
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -265,18 +296,33 @@ fun AppDrawerSheet(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .nestedScroll(pullDownToCloseConnection)
+            .then(if (isVisible) Modifier.nestedScroll(pullDownToCloseConnection) else Modifier)
             .graphicsLayer {
-                val p = progressProvider().coerceIn(0f, 1f)
-                val backP = predictiveBackProgressProvider().coerceIn(0f, 1f)
-                val backScale = 1f - (0.08f * backP)
+                if (!isVisible) {
+                    alpha = 0f
+                    translationY = size.height
+                    clip = false
+                } else {
+                    val p = progressProvider().coerceIn(0f, 1f)
+                    val backP = predictiveBackProgressProvider().coerceIn(0f, 1f)
+                    if (p >= 0.995f && backP <= 0.005f) {
+                        alpha = 1f
+                        translationY = 0f
+                        scaleX = 1f
+                        scaleY = 1f
+                        clip = false
+                    } else {
+                        val backScale = 1f - (0.08f * backP)
+                        val cornerDp = ((1f - p) * 28f + (28f * backP)).coerceIn(0f, 32f)
 
-                alpha = (p * (1f - 0.25f * backP)).coerceIn(0f, 1f)
-                translationY = ((1f - p) * size.height) + (backP * 36.dp.toPx())
-                scaleX = backScale
-                scaleY = backScale
-                clip = backP > 0.01f
-                shape = RoundedCornerShape((28f * backP).dp)
+                        alpha = (p * 2.2f * (1f - 0.25f * backP)).coerceIn(0f, 1f)
+                        translationY = ((1f - p) * (size.height * 0.52f)) + (backP * 36.dp.toPx())
+                        scaleX = backScale
+                        scaleY = backScale
+                        clip = cornerDp > 1f
+                        shape = RoundedCornerShape(cornerDp.dp)
+                    }
+                }
             }
             .background(
                 surfaceColor.copy(alpha = settings.drawerBackgroundOpacity.coerceIn(0.60f, 1.0f))
@@ -322,14 +368,7 @@ fun AppDrawerSheet(
                     focusRequester = searchFocusRequester,
                     onQueryChange = onSearchQueryChange,
                     onSettingsClick = onOpenLauncherSettings,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .graphicsLayer {
-                            val p = progressProvider().coerceIn(0f, 1f)
-                            val scale = 0.94f + 0.06f * p
-                            scaleX = scale
-                            scaleY = scale
-                        }
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                 )
             }
 
@@ -440,6 +479,7 @@ fun AppDrawerSheet(
                 when (settings.drawerLayoutMode) {
                     DrawerLayoutMode.LIST -> {
                         LazyColumn(
+                            userScrollEnabled = isVisible,
                             contentPadding = PaddingValues(
                                 start = 16.dp,
                                 end = 28.dp,
@@ -464,6 +504,7 @@ fun AppDrawerSheet(
                                         iconCache = iconCache,
                                         settings = drawerIconSettings,
                                         showLabel = false,
+                                        enableLabelShadow = false,
                                         useThemedIcon = settings.themedIconsInDrawer,
                                         baseIconSize = 44.dp,
                                         onClick = onAppClick,
@@ -500,6 +541,7 @@ fun AppDrawerSheet(
                         ) {
                             HorizontalPager(
                                 state = drawerPagerState,
+                                userScrollEnabled = isVisible,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -507,6 +549,7 @@ fun AppDrawerSheet(
                                 val pageApps = pages[pageIdx]
                                 LazyVerticalGrid(
                                     columns = GridCells.Fixed(cols),
+                                    userScrollEnabled = false,
                                     contentPadding = PaddingValues(14.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -518,6 +561,7 @@ fun AppDrawerSheet(
                                             iconCache = iconCache,
                                             settings = drawerIconSettings,
                                             showLabel = settings.showDrawerLabels,
+                                            enableLabelShadow = false,
                                             useThemedIcon = settings.themedIconsInDrawer,
                                             onClick = onAppClick,
                                             onLongClick = onAppLongClick
@@ -537,6 +581,7 @@ fun AppDrawerSheet(
                     DrawerLayoutMode.VERTICAL -> {
                         LazyVerticalGrid(
                             state = gridState,
+                            userScrollEnabled = isVisible,
                             columns = GridCells.Fixed(cols),
                             contentPadding = PaddingValues(
                                 start = 14.dp,
@@ -554,10 +599,11 @@ fun AppDrawerSheet(
                                 searchQuery.isBlank() &&
                                 !selectedWorkTab &&
                                 selectedCategory == null &&
-                                suggestedApps.isNotEmpty()
+                                uniqueSuggestedApps.isNotEmpty()
                             ) {
                                 item(
                                     key = "header_suggested",
+                                    contentType = "header",
                                     span = { GridItemSpan(cols) }
                                 ) {
                                     Text(
@@ -570,15 +616,17 @@ fun AppDrawerSheet(
                                     )
                                 }
 
-                                items(
-                                    items = suggestedApps.take(cols),
-                                    key = { "suggested_${it.componentKey}" }
-                                ) { app ->
+                                itemsIndexed(
+                                    items = uniqueSuggestedApps,
+                                    key = { _, app -> "suggested_${app.componentKey}" },
+                                    contentType = { _, _ -> "app_icon" }
+                                ) { _, app ->
                                     SquircleAppIcon(
                                         app = app,
                                         iconCache = iconCache,
                                         settings = drawerIconSettings,
                                         showLabel = settings.showDrawerLabels,
+                                        enableLabelShadow = false,
                                         useThemedIcon = settings.themedIconsInDrawer,
                                         onClick = onAppClick,
                                         onLongClick = onAppLongClick
@@ -587,6 +635,7 @@ fun AppDrawerSheet(
 
                                 item(
                                     key = "divider_suggested",
+                                    contentType = "divider",
                                     span = { GridItemSpan(cols) }
                                 ) {
                                     Column(modifier = Modifier.padding(vertical = 6.dp, horizontal = 8.dp)) {
@@ -605,19 +654,65 @@ fun AppDrawerSheet(
                                 }
                             }
 
-                            items(
+                            itemsIndexed(
                                 items = filteredApps,
-                                key = { it.componentKey }
-                            ) { app ->
+                                key = { _, app -> "all_${app.componentKey}" },
+                                contentType = { _, _ -> "app_icon" }
+                            ) { _, app ->
                                 SquircleAppIcon(
                                     app = app,
                                     iconCache = iconCache,
                                     settings = drawerIconSettings,
                                     showLabel = settings.showDrawerLabels,
+                                    enableLabelShadow = false,
                                     useThemedIcon = settings.themedIconsInDrawer,
                                     onClick = onAppClick,
                                     onLongClick = onAppLongClick
                                 )
+                            }
+
+                            if (filteredApps.isEmpty() && searchQuery.isNotBlank()) {
+                                item(
+                                    key = "empty_search_state",
+                                    contentType = "empty_state",
+                                    span = { GridItemSpan(cols) }
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(24.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 12.dp)
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.padding(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Search,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.empty_search_title, searchQuery),
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontWeight = FontWeight.SemiBold
+                                                ),
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = stringResource(R.string.empty_search_subtitle),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            TextButton(onClick = { onSearchQueryChange("") }) {
+                                                Text(stringResource(R.string.clear_search_filter))
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             // Universal Search Results: App Shortcuts
@@ -653,7 +748,7 @@ fun AppDrawerSheet(
                                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Filled.Shortcut,
+                                                        imageVector = Icons.AutoMirrored.Filled.Shortcut,
                                                         contentDescription = null,
                                                         tint = MaterialTheme.colorScheme.primary,
                                                         modifier = Modifier.size(18.dp)
@@ -763,14 +858,17 @@ fun AppDrawerSheet(
                             .fillMaxHeight()
                             .padding(top = 16.dp, bottom = 16.dp, end = 4.dp)
                             .width(24.dp)
-                            .pointerInput(filteredApps) {
+                            .pointerInput(filteredApps, uniqueSuggestedApps) {
                                 detectVerticalDragGestures(
                                     onDragEnd = { activeFastScrollLetter = null },
                                     onDragCancel = { activeFastScrollLetter = null },
                                     onVerticalDrag = { change, _ ->
-                                        val fraction = (change.position.y / size.height.coerceAtLeast(1))
+                                        val posY = change.position.y
+                                        if (!posY.isFinite()) return@detectVerticalDragGestures
+                                        val fraction = (posY / size.height.coerceAtLeast(1))
                                             .coerceIn(0f, 0.999f)
                                         val letterIndex = (fraction * alphabetLetters.size).toInt()
+                                            .coerceIn(0, alphabetLetters.lastIndex)
                                         val letter = alphabetLetters[letterIndex]
                                         if (activeFastScrollLetter != letter) {
                                             activeFastScrollLetter = letter
@@ -779,8 +877,21 @@ fun AppDrawerSheet(
                                                 it.initialLetter == letter
                                             }
                                             if (targetIdx >= 0) {
+                                                val headerOffset = if (
+                                                    settings.showSuggestedAppsRow &&
+                                                    searchQuery.isBlank() &&
+                                                    !selectedWorkTab &&
+                                                    selectedCategory == null &&
+                                                    uniqueSuggestedApps.isNotEmpty()
+                                                ) {
+                                                    uniqueSuggestedApps.size + 2
+                                                } else {
+                                                    0
+                                                }
                                                 coroutineScope.launch {
-                                                    gridState.scrollToItem(targetIdx)
+                                                    runCatching {
+                                                        gridState.scrollToItem((headerOffset + targetIdx).coerceAtLeast(0))
+                                                    }
                                                 }
                                             }
                                         }
@@ -800,16 +911,7 @@ fun AppDrawerSheet(
                                     } else {
                                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
                                     }
-                                ),
-                                modifier = Modifier.clickable {
-                                    val targetIdx = filteredApps.indexOfFirst { it.initialLetter == letter }
-                                    if (targetIdx >= 0) {
-                                        LauncherHaptics.performSnapOrTick(rootView, settings)
-                                        coroutineScope.launch {
-                                            gridState.animateScrollToItem(targetIdx)
-                                        }
-                                    }
-                                }
+                                )
                             )
                         }
                     }

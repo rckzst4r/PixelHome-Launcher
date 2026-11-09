@@ -6,7 +6,14 @@ import androidx.activity.BackEventCompat
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateOffsetAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -59,7 +66,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -70,13 +77,16 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -136,6 +146,24 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
+
+/**
+ * Plain non-observable holder for workspace & hotseat bounds so `.onGloballyPositioned`
+ * never triggers Compose Snapshot writes or recompositions when paging horizontally.
+ */
+private class WorkspaceLayoutMetrics(
+    var gridTopPx: Float = 240f,
+    var gridBottomPx: Float = 1400f,
+    var hotseatTopPx: Float = 1500f
+)
+
+private class GridCoordsHolder(var coords: LayoutCoordinates? = null) {
+    fun resolveWindowPosition(): Offset {
+        val c = coords
+        if (c == null || !c.isAttached) return Offset.Zero
+        return runCatching { c.positionInWindow() }.getOrDefault(Offset.Zero)
+    }
+}
 
 /**
  * Primary single-activity Pixel Home Screen Composable:
@@ -228,24 +256,56 @@ fun LauncherScreen(
     }
 
     val drawerProgress = remember { Animatable(0f) }
+    val workspaceWaveProgress = remember { Animatable(1f) }
     var predictiveBackProgress by remember { mutableFloatStateOf(0f) }
 
-    var workspaceGridTopPx by remember { mutableFloatStateOf(240f) }
-    var workspaceGridBottomPx by remember { mutableFloatStateOf(1400f) }
-    var hotseatTopPx by remember { mutableFloatStateOf(1500f) }
+    val layoutMetrics = remember { WorkspaceLayoutMetrics() }
 
     var workspaceMenuAnchorOffset by remember { mutableStateOf<Offset?>(null) }
     var showWelcomeScreen by remember { mutableStateOf(!settings.hasSeenWelcome) }
+
+    fun triggerWorkspaceWaveBounce() {
+        coroutineScope.launch {
+            workspaceWaveProgress.snapTo(0.15f)
+            workspaceWaveProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = (settings.springDampingRatio * 0.72f).coerceIn(0.48f, 0.85f),
+                    stiffness = (settings.springStiffness * 0.85f).coerceIn(180f, 900f)
+                )
+            )
+        }
+    }
+
+    LaunchedEffect(uiState.isLoading) {
+        if (!uiState.isLoading) {
+            workspaceWaveProgress.snapTo(0f)
+            workspaceWaveProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = 0.64f,
+                    stiffness = 280f
+                )
+            )
+        }
+    }
 
     fun animateDrawerTo(target: Float, initialVelocity: Float = 0f, focusSearch: Boolean = false) {
         coroutineScope.launch {
             if (target == 1f && (focusSearch || settings.autoOpenDrawerKeyboard)) {
                 onTriggerSearchGestureFocus()
             }
+            if (target == 0f && drawerProgress.value > 0.35f) {
+                triggerWorkspaceWaveBounce()
+            }
             drawerProgress.animateTo(
                 targetValue = target.coerceIn(0f, 1f),
                 initialVelocity = initialVelocity,
-                animationSpec = LauncherPhysics.springSpec(settings, context)
+                animationSpec = LauncherPhysics.springSpec(
+                    settings = settings,
+                    context = context,
+                    stiffnessScale = 1.35f
+                )
             )
             if (target == 0f) {
                 onSearchQueryChange("")
@@ -278,19 +338,26 @@ fun LauncherScreen(
         }
     }
 
-    SideEffect {
-        onWindowBlurProgressChanged(drawerProgress.value)
+    // Only toggle hardware window blur when drawer settles open/closed to avoid mid-swipe SurfaceFlinger stalls
+    LaunchedEffect(drawerProgress) {
+        snapshotFlow { drawerProgress.value > 0.85f }
+            .distinctUntilChanged()
+            .collect { settledOpen ->
+                onWindowBlurProgressChanged(if (settledOpen) 1f else 0f)
+            }
     }
 
     LaunchedEffect(homePressEvents) {
         homePressEvents.collect {
             val spec = LauncherPhysics.springSpec<Float>(settings, context)
+            triggerWorkspaceWaveBounce()
             launch { drawerProgress.animateTo(0f, spec) }
             launch { pagerState.animateScrollToPage(0, animationSpec = spec) }
         }
     }
 
-    val isDrawerOpen = drawerProgress.value > 0.05f
+    val isDrawerOpen by remember { derivedStateOf { drawerProgress.value > 0.05f } }
+    val isDrawerVisible by remember { derivedStateOf { drawerProgress.value > 0.005f } }
     val hasActiveBackTarget = isDrawerOpen ||
         uiState.activeFolderItem != null ||
         uiState.activePopupApp != null ||
@@ -346,43 +413,55 @@ fun LauncherScreen(
 
         val workspaceMaxWidth = if (isTabletModeActive) 1280.dp else 640.dp
 
-        // 1. Multi-layer Wallpaper Parallax + Scrim Fallback Layer
-        Canvas(
+        val parsedAccentColor = remember(settings.accentColorHex) {
+            parseHexColorSafe(settings.accentColorHex)
+        }
+
+        // 1. Multi-layer Wallpaper Parallax + Full-Bleed Scrim Layer with cached GPU Shaders (zero per-frame allocations)
+        Spacer(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    if (settings.wallpaperParallax) {
-                        val pageFraction = (pagerState.currentPage + pagerState.currentPageOffsetFraction) /
-                            pageCount.toFloat().coerceAtLeast(1f)
-                        translationX = -pageFraction * 44.dp.toPx()
+                .drawWithCache {
+                    val verticalScrimBrush = Brush.verticalGradient(
+                        0.0f to Color(0x550B111E),
+                        0.35f to Color(0x180B111E),
+                        0.75f to Color(0x280B111E),
+                        1.0f to Color(0x66080D18)
+                    )
+                    val baseGlowCenter = Offset(size.width * 0.82f, size.height * 0.18f)
+                    val glowRadius = (size.width * 0.65f).coerceAtLeast(1f)
+                    val radialGlowBrush = Brush.radialGradient(
+                        colors = listOf(
+                            parsedAccentColor.copy(alpha = 0.24f),
+                            Color.Transparent
+                        ),
+                        center = baseGlowCenter,
+                        radius = glowRadius
+                    )
+
+                    onDrawBehind {
+                        drawRect(brush = verticalScrimBrush)
+                        val parallaxDx = if (settings.wallpaperParallax) {
+                            val pageFraction = (pagerState.currentPage + pagerState.currentPageOffsetFraction) /
+                                pageCount.toFloat().coerceAtLeast(1f)
+                            -pageFraction * 44.dp.toPx()
+                        } else {
+                            0f
+                        }
+                        withTransform({ translate(left = parallaxDx, top = 0f) }) {
+                            drawCircle(
+                                brush = radialGlowBrush,
+                                center = baseGlowCenter,
+                                radius = glowRadius
+                            )
+                        }
+                        val drawerDim = (drawerProgress.value * 0.52f).coerceIn(0f, 0.58f)
+                        if (drawerDim > 0.005f) {
+                            drawRect(color = Color.Black.copy(alpha = drawerDim))
+                        }
                     }
                 }
-        ) {
-            val drawerDim = (drawerProgress.value * 0.48f).coerceIn(0f, 0.55f)
-            drawRect(
-                brush = Brush.verticalGradient(
-                    0.0f to Color(0x550B111E),
-                    0.35f to Color(0x180B111E),
-                    0.75f to Color(0x280B111E),
-                    1.0f to Color(0x66080D18)
-                )
-            )
-            if (drawerDim > 0.005f) {
-                drawRect(color = Color.Black.copy(alpha = drawerDim))
-            }
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        parseHexColorSafe(settings.accentColorHex).copy(alpha = 0.24f),
-                        Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.82f, size.height * 0.18f),
-                    radius = size.width * 0.65f
-                ),
-                center = Offset(size.width * 0.82f, size.height * 0.18f),
-                radius = size.width * 0.65f
-            )
-        }
+        )
 
         // 2. Home Workspace Layer (Phone Single-Pane or Tablet Dual-Pane Spread)
         Column(
@@ -397,11 +476,11 @@ fun LauncherScreen(
                 )
                 .graphicsLayer {
                     val p = drawerProgress.value.coerceIn(0f, 1f)
-                    alpha = (1f - p * 1.35f).coerceIn(0f, 1f)
-                    val s = 1f - (0.06f * p)
+                    alpha = (1f - p * 1.45f).coerceIn(0f, 1f)
+                    val s = 1f - (0.05f * p)
                     scaleX = s
                     scaleY = s
-                    translationY = -p * 48.dp.toPx()
+                    translationY = -p * 36.dp.toPx()
                 }
                 .pointerInput(settings.swipeUpAction, settings.swipeDownAction, dragSession != null) {
                     if (dragSession != null) return@pointerInput
@@ -418,7 +497,7 @@ fun LauncherScreen(
                             if (settings.swipeUpAction == LauncherGestureAction.DRAWER ||
                                 settings.swipeUpAction == LauncherGestureAction.SEARCH
                             ) {
-                                val deltaProgress = -dragAmount / (screenHeightPx * 0.56f)
+                                val deltaProgress = -dragAmount / (screenHeightPx * 0.44f)
                                 val next = (drawerProgress.value + deltaProgress).coerceIn(0f, 1f)
                                 if (next > 0f || drawerProgress.value > 0f) {
                                     change.consume()
@@ -431,23 +510,23 @@ fun LauncherScreen(
                         onDragEnd = {
                             val vy = velocityTracker.calculateVelocity().y
                             if (drawerProgress.value > 0.01f) {
-                                val open = vy < -600f || (drawerProgress.value > 0.30f && vy < 600f)
+                                val open = vy < -420f || (drawerProgress.value > 0.24f && vy < 420f)
                                 if (open) {
                                     LauncherHaptics.performSnapOrTick(rootView, settings)
                                 }
                                 animateDrawerTo(
                                     target = if (open) 1f else 0f,
-                                    initialVelocity = -vy / screenHeightPx,
+                                    initialVelocity = -vy / (screenHeightPx * 0.44f),
                                     focusSearch = open && settings.swipeUpAction == LauncherGestureAction.SEARCH
                                 )
-                            } else if (totalDy < -90f || vy < -850f) {
+                            } else if (totalDy < -70f || vy < -650f) {
                                 executeGestureAction(settings.swipeUpAction, vy, screenHeightPx)
-                            } else if (totalDy > 85f || vy > 850f) {
+                            } else if (totalDy > 75f || vy > 750f) {
                                 executeGestureAction(settings.swipeDownAction, vy, screenHeightPx)
                             }
                         },
                         onDragCancel = {
-                            animateDrawerTo(if (drawerProgress.value > 0.5f) 1f else 0f)
+                            animateDrawerTo(if (drawerProgress.value > 0.4f) 1f else 0f)
                         }
                     )
                 }
@@ -501,6 +580,7 @@ fun LauncherScreen(
                     // Right Tablet Pane: Multi-Page App Grid Pager
                     HorizontalPager(
                         state = pagerState,
+                        key = { it },
                         userScrollEnabled = dragSession == null,
                         modifier = Modifier
                             .weight(0.60f)
@@ -514,6 +594,7 @@ fun LauncherScreen(
                             pageOffsetProvider = {
                                 (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
                             },
+                            waveProgressProvider = { workspaceWaveProgress.value },
                             items = pageItems,
                             appsByKey = uiState.appsByKey,
                             iconCache = iconCache,
@@ -522,8 +603,8 @@ fun LauncherScreen(
                             settings = settings,
                             onGridBoundsMeasured = { topPx, bottomPx ->
                                 if (pageIndex == pagerState.currentPage) {
-                                    workspaceGridTopPx = topPx
-                                    workspaceGridBottomPx = bottomPx
+                                    layoutMetrics.gridTopPx = topPx
+                                    layoutMetrics.gridBottomPx = bottomPx
                                 }
                             },
                             onAppClick = onAppClick,
@@ -541,9 +622,9 @@ fun LauncherScreen(
                                     pagerState.currentPage,
                                     screenWidthPx,
                                     topDropZoneBottomPx,
-                                    workspaceGridTopPx,
-                                    workspaceGridBottomPx,
-                                    hotseatTopPx
+                                    layoutMetrics.gridTopPx,
+                                    layoutMetrics.gridBottomPx,
+                                    layoutMetrics.hotseatTopPx
                                 )
                                 if (changed) {
                                     LauncherHaptics.performSnapOrTick(rootView, settings)
@@ -574,6 +655,8 @@ fun LauncherScreen(
                 // Standard Single-Pane Multi-Page Home Grid Pager
                 HorizontalPager(
                     state = pagerState,
+                    key = { it },
+                    beyondViewportPageCount = 1,
                     userScrollEnabled = dragSession == null,
                     modifier = Modifier
                         .weight(1f)
@@ -587,6 +670,7 @@ fun LauncherScreen(
                         pageOffsetProvider = {
                             (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
                         },
+                        waveProgressProvider = { workspaceWaveProgress.value },
                         items = pageItems,
                         appsByKey = uiState.appsByKey,
                         iconCache = iconCache,
@@ -595,8 +679,8 @@ fun LauncherScreen(
                         settings = settings,
                         onGridBoundsMeasured = { topPx, bottomPx ->
                             if (pageIndex == pagerState.currentPage) {
-                                workspaceGridTopPx = topPx
-                                workspaceGridBottomPx = bottomPx
+                                layoutMetrics.gridTopPx = topPx
+                                layoutMetrics.gridBottomPx = bottomPx
                             }
                         },
                         onAppClick = onAppClick,
@@ -614,9 +698,9 @@ fun LauncherScreen(
                                 pagerState.currentPage,
                                 screenWidthPx,
                                 topDropZoneBottomPx,
-                                workspaceGridTopPx,
-                                workspaceGridBottomPx,
-                                hotseatTopPx
+                                layoutMetrics.gridTopPx,
+                                layoutMetrics.gridBottomPx,
+                                layoutMetrics.hotseatTopPx
                             )
                             if (changed) {
                                 LauncherHaptics.performSnapOrTick(rootView, settings)
@@ -666,7 +750,7 @@ fun LauncherScreen(
                 Icon(
                     imageVector = Icons.Filled.KeyboardArrowUp,
                     contentDescription = "Swipe up to open app drawer",
-                    tint = Color.White.copy(alpha = 0.65f),
+                    tint = Color.White.copy(alpha = 0.72f),
                     modifier = Modifier.combinedClickable(
                         onClick = { animateDrawerTo(1f) }
                     )
@@ -691,7 +775,7 @@ fun LauncherScreen(
                         dragSession = dragSession,
                         settings = settings,
                         drawerProgressProvider = { drawerProgress.value },
-                        onHotseatTopMeasured = { topY -> hotseatTopPx = topY },
+                        onHotseatTopMeasured = { topY -> layoutMetrics.hotseatTopPx = topY },
                         onOpenDrawerClick = { animateDrawerTo(1f) },
                         onAppClick = onAppClick,
                         onAppLongClick = { clickedApp, itemId, rect ->
@@ -708,9 +792,9 @@ fun LauncherScreen(
                                 pagerState.currentPage,
                                 screenWidthPx,
                                 topDropZoneBottomPx,
-                                workspaceGridTopPx,
-                                workspaceGridBottomPx,
-                                hotseatTopPx
+                                layoutMetrics.gridTopPx,
+                                layoutMetrics.gridBottomPx,
+                                layoutMetrics.hotseatTopPx
                             )
                             if (changed) {
                                 LauncherHaptics.performSnapOrTick(rootView, settings)
@@ -729,7 +813,8 @@ fun LauncherScreen(
                         dragSession = dragSession,
                         settings = settings,
                         drawerProgressProvider = { drawerProgress.value },
-                        onHotseatTopMeasured = { topY -> hotseatTopPx = topY },
+                        waveProgressProvider = { workspaceWaveProgress.value },
+                        onHotseatTopMeasured = { topY -> layoutMetrics.hotseatTopPx = topY },
                         onAppClick = onAppClick,
                         onAppLongClick = { clickedApp, itemId, rect ->
                             LauncherHaptics.performLongPress(rootView, settings)
@@ -745,9 +830,9 @@ fun LauncherScreen(
                                 pagerState.currentPage,
                                 screenWidthPx,
                                 topDropZoneBottomPx,
-                                workspaceGridTopPx,
-                                workspaceGridBottomPx,
-                                hotseatTopPx
+                                layoutMetrics.gridTopPx,
+                                layoutMetrics.gridBottomPx,
+                                layoutMetrics.hotseatTopPx
                             )
                             if (changed) {
                                 LauncherHaptics.performSnapOrTick(rootView, settings)
@@ -781,50 +866,49 @@ fun LauncherScreen(
             }
         }
 
-        // 3. App Drawer Layer
-        if (drawerProgress.value > 0.005f) {
-            AppDrawerSheet(
-                progressProvider = { drawerProgress.value },
-                predictiveBackProgressProvider = { predictiveBackProgress },
-                allApps = uiState.allApps,
-                suggestedApps = uiState.suggestedApps,
-                iconCache = iconCache,
-                settings = if (isTabletModeActive && settings.drawerColumns < 6) {
-                    settings.copy(drawerColumns = 6)
-                } else {
-                    settings
-                },
-                searchQuery = uiState.searchQuery,
-                requestSearchFocus = requestDrawerSearchFocus,
-                onSearchFocusConsumed = onConsumeDrawerSearchFocus,
-                onSearchQueryChange = onSearchQueryChange,
-                onAppClick = onAppClick,
-                onAppLongClick = { app, rect ->
-                    LauncherHaptics.performLongPress(rootView, settings)
-                    onAppLongClick(app, null, rect)
-                },
-                onDragDrawerByDelta = { dy ->
-                    val deltaProgress = -dy / (screenHeightPx * 0.58f)
-                    val next = (drawerProgress.value + deltaProgress).coerceIn(0f, 1f)
-                    coroutineScope.launch {
-                        drawerProgress.snapTo(next)
-                    }
-                },
-                onSettleDrawerWithVelocity = { vy ->
-                    val shouldClose = vy > 550f || (drawerProgress.value < 0.72f && vy > -450f)
-                    if (shouldClose) {
-                        LauncherHaptics.performSnapOrTick(rootView, settings)
-                    }
-                    animateDrawerTo(
-                        target = if (shouldClose) 0f else 1f,
-                        initialVelocity = -vy / screenHeightPx
-                    )
-                },
-                onCloseDrawer = { animateDrawerTo(0f) },
-                onWebSearchClick = onWebSearchClick,
-                onOpenLauncherSettings = onOpenQuickSettings
-            )
-        }
+        // 3. App Drawer Layer — Kept pre-composed in tree so swipe-up starts on frame 1 with zero cold-layout lag
+        AppDrawerSheet(
+            isVisible = isDrawerVisible,
+            progressProvider = { drawerProgress.value },
+            predictiveBackProgressProvider = { predictiveBackProgress },
+            allApps = uiState.allApps,
+            suggestedApps = uiState.suggestedApps,
+            iconCache = iconCache,
+            settings = if (isTabletModeActive && settings.drawerColumns < 6) {
+                settings.copy(drawerColumns = 6)
+            } else {
+                settings
+            },
+            searchQuery = uiState.searchQuery,
+            requestSearchFocus = requestDrawerSearchFocus,
+            onSearchFocusConsumed = onConsumeDrawerSearchFocus,
+            onSearchQueryChange = onSearchQueryChange,
+            onAppClick = onAppClick,
+            onAppLongClick = { app, rect ->
+                LauncherHaptics.performLongPress(rootView, settings)
+                onAppLongClick(app, null, rect)
+            },
+            onDragDrawerByDelta = { dy ->
+                val deltaProgress = -dy / (screenHeightPx * 0.44f)
+                val next = (drawerProgress.value + deltaProgress).coerceIn(0f, 1f)
+                coroutineScope.launch {
+                    drawerProgress.snapTo(next)
+                }
+            },
+            onSettleDrawerWithVelocity = { vy ->
+                val shouldClose = vy > 420f || (drawerProgress.value < 0.74f && vy > -380f)
+                if (shouldClose) {
+                    LauncherHaptics.performSnapOrTick(rootView, settings)
+                }
+                animateDrawerTo(
+                    target = if (shouldClose) 0f else 1f,
+                    initialVelocity = -vy / (screenHeightPx * 0.44f)
+                )
+            },
+            onCloseDrawer = { animateDrawerTo(0f) },
+            onWebSearchClick = onWebSearchClick,
+            onOpenLauncherSettings = onOpenQuickSettings
+        )
 
         // 4. Expanded Folder Panel Modal
         uiState.activeFolderItem?.let { folderItem ->
@@ -999,6 +1083,7 @@ private fun TabletDashboardSidePane(
             componentKey = BuiltInPixelWidgetType.PIXEL_CLOCK.key,
             appWidgetId = -1,
             widgetHostController = widgetHostController,
+            temperatureUnit = settings.temperatureUnit,
             onClick = onCalendarClick,
             onLongClick = {},
             modifier = Modifier
@@ -1010,6 +1095,7 @@ private fun TabletDashboardSidePane(
             componentKey = BuiltInPixelWidgetType.PIXEL_BATTERY.key,
             appWidgetId = -1,
             widgetHostController = widgetHostController,
+            temperatureUnit = settings.temperatureUnit,
             onClick = onCalendarClick,
             onLongClick = {},
             modifier = Modifier
@@ -1025,6 +1111,7 @@ private fun WorkspacePageGrid(
     pageIndex: Int,
     isTabletSideBySide: Boolean,
     pageOffsetProvider: () -> Float,
+    waveProgressProvider: () -> Float = { 1f },
     items: List<HomeItemEntity>,
     appsByKey: Map<String, AppInfo>,
     iconCache: IconCache,
@@ -1054,7 +1141,6 @@ private fun WorkspacePageGrid(
     } else {
         settings.gridRows.coerceIn(4, 7)
     }
-    val interactionSource = remember { MutableInteractionSource() }
 
     val widgetsOnPage = remember(items) {
         items.filter { it.itemType == HomeCellItemType.WIDGET.name }
@@ -1068,28 +1154,34 @@ private fun WorkspacePageGrid(
         SquircleShape(exponent = settings.squircleExponent, preset = settings.iconShape)
     }
 
-    var gridWinOffset by remember { mutableStateOf(Offset.Zero) }
+    val gridCoordsHolder = remember { GridCoordsHolder() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                if (settings.wallpaperParallax) {
-                    val pageOff = pageOffsetProvider().coerceIn(-1f, 1f)
-                    val depthScale = 1f - (abs(pageOff) * 0.045f)
-                    scaleX = depthScale
-                    scaleY = depthScale
-                    rotationY = -pageOff * 5.5f
-                    cameraDistance = 16f * density
+                val pageOff = pageOffsetProvider().coerceIn(-1f, 1f)
+                val wave = waveProgressProvider().coerceIn(0f, 1.15f)
+                val waveScale = 0.88f + 0.12f * wave
+                val parallaxScale = if (settings.wallpaperParallax) {
+                    1f - (abs(pageOff) * 0.045f)
+                } else {
+                    1f
                 }
+                val combinedScale = waveScale * parallaxScale
+                scaleX = combinedScale
+                scaleY = combinedScale
+                alpha = ((1f - abs(pageOff) * 0.22f) * wave.coerceIn(0f, 1f)).coerceIn(0.45f, 1f)
+                translationY = (1f - wave) * 18.dp.toPx()
             }
             .onGloballyPositioned { coords ->
-                gridWinOffset = coords.positionInWindow()
+                gridCoordsHolder.coords = coords
             }
             .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = { onEmptySpaceDoubleTap() },
                     onLongPress = { localOffset ->
+                        val gridWinOffset = gridCoordsHolder.resolveWindowPosition()
                         val winOffset = Offset(
                             gridWinOffset.x + localOffset.x,
                             gridWinOffset.y + localOffset.y
@@ -1118,6 +1210,7 @@ private fun WorkspacePageGrid(
                 componentKey = widgetItem.componentKey,
                 appWidgetId = widgetItem.appWidgetId,
                 widgetHostController = widgetHostController,
+                temperatureUnit = settings.temperatureUnit,
                 onClick = onCalendarClick,
                 onLongClick = { onWidgetLongPress(widgetItem) },
                 modifier = Modifier
@@ -1131,8 +1224,10 @@ private fun WorkspacePageGrid(
                 .weight(1f)
                 .fillMaxWidth()
                 .onGloballyPositioned { coords ->
-                    val b = coords.boundsInWindow()
-                    onGridBoundsMeasured(b.top, b.bottom)
+                    if (coords.isAttached) {
+                        val b = coords.boundsInWindow()
+                        onGridBoundsMeasured(b.top, b.bottom)
+                    }
                 }
         ) {
             for (r in startRow until rows) {
@@ -1145,40 +1240,42 @@ private fun WorkspacePageGrid(
                 ) {
                     for (c in 0 until cols) {
                         val cellItem = nonWidgetItemsByCell[c to r]
-                        val normalizedCol = (c - (cols - 1) / 2f)
                         val isHoveredTargetCell = dragSession != null &&
                             dragSession.hoveredCellX == c &&
                             dragSession.hoveredCellY == r
 
-                        val reflowTarget = cellItem?.id?.let { dragSession?.reflowPreviewOffsets?.get(it) }
-                        val reflowDelta by animateOffsetAsState(
-                            targetValue = if (reflowTarget != null) {
-                                Offset(
-                                    (reflowTarget.x - c).toFloat(),
-                                    (reflowTarget.y - r).toFloat()
-                                )
-                            } else {
-                                Offset.Zero
-                            },
-                            animationSpec = LauncherPhysics.springSpec(settings, context),
-                            label = "NeighborReflowSpring"
-                        )
-
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
+                        val cellModifier = if (dragSession != null) {
+                            val reflowTarget = cellItem?.id?.let { dragSession.reflowPreviewOffsets[it] }
+                            val reflowDelta by animateOffsetAsState(
+                                targetValue = if (reflowTarget != null) {
+                                    Offset(
+                                        (reflowTarget.x - c).toFloat(),
+                                        (reflowTarget.y - r).toFloat()
+                                    )
+                                } else {
+                                    Offset.Zero
+                                },
+                                animationSpec = LauncherPhysics.springSpec(settings, context),
+                                label = "NeighborReflowSpring"
+                            )
+                            Modifier
                                 .weight(1f)
                                 .fillMaxSize()
                                 .graphicsLayer {
-                                    if (settings.wallpaperParallax) {
-                                        val pageOff = pageOffsetProvider().coerceIn(-1f, 1f)
-                                        translationX = -pageOff * normalizedCol * 6.dp.toPx()
-                                    }
                                     if (reflowDelta != Offset.Zero) {
-                                        translationX += reflowDelta.x * size.width
-                                        translationY += reflowDelta.y * size.height
+                                        translationX = reflowDelta.x * size.width
+                                        translationY = reflowDelta.y * size.height
                                     }
                                 }
+                        } else {
+                            Modifier
+                                .weight(1f)
+                                .fillMaxSize()
+                        }
+
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = cellModifier
                         ) {
                             if (isHoveredTargetCell &&
                                 (dragSession?.hoverMode == WorkspaceHoverMode.EMPTY_CELL ||
@@ -1265,6 +1362,7 @@ private fun HotseatDockRow(
     dragSession: DragSessionState?,
     settings: LauncherSettings,
     drawerProgressProvider: () -> Float,
+    waveProgressProvider: () -> Float = { 1f },
     onHotseatTopMeasured: (Float) -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Long?, Rect) -> Unit,
@@ -1303,8 +1401,12 @@ private fun HotseatDockRow(
             }
             .graphicsLayer {
                 val p = drawerProgressProvider().coerceIn(0f, 1f)
-                alpha = (1f - p * 1.8f).coerceIn(0f, 1f)
-                translationY = p * 28.dp.toPx()
+                val wave = waveProgressProvider().coerceIn(0f, 1.15f)
+                alpha = ((1f - p * 1.8f) * wave).coerceIn(0f, 1f)
+                translationY = (p * 28.dp.toPx()) + ((1f - wave) * 20.dp.toPx())
+                val s = 0.82f + 0.18f * wave
+                scaleX = s
+                scaleY = s
             }
             .testTag("hotseat_dock_row")
     ) {

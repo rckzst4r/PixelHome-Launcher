@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">Définir PixelHome comme écran d\'accueil par défaut</string>
+    <string name="set_default_launcher_subtitle">Profitez des icônes squircle, des animations fluides et du style Material You.</string>
+    <string name="set_default_action">Par défaut</string>
+    <string name="dismiss_action">Plus tard</string>
+    <string name="search_apps_hint">Rechercher applis, web et raccourcis</string>
+    <string name="work_profile_tab">Pro</string>
+    <string name="personal_profile_tab">Personnel</string>
+    <string name="wallpaper_and_style">Fond d\'écran et style</string>
+    <string name="widgets_menu">Widgets</string>
+    <string name="home_settings">Paramètres d\'accueil</string>
+    <string name="suggested_apps">Suggestions</string>
+    <string name="all_apps">Toutes les applis</string>
+    <string name="battery_title">Batterie</string>
+    <string name="battery_charging">Batterie · En charge</string>
+    <string name="weather_mostly_sunny">Plutôt ensoleillé</string>
+    <string name="greeting_morning">Bonjour · Ciel dégagé · Ouvrir l\'agenda</string>
+    <string name="greeting_afternoon">Réunion design · 14h30 · Ouvrir l\'agenda</string>
+    <string name="greeting_evening">Bonsoir · Coucher à 19h48 · Agenda</string>
+    <string name="greeting_night">Mode nuit calme · Appuyer pour l\'agenda</string>
+    <string name="empty_search_title">Aucune application pour \"%1$s\"</string>
+    <string name="empty_search_subtitle">Essayez un autre mot-clé ou recherchez sur le Web.</string>
+    <string name="clear_search_filter">Effacer la recherche</string>
+    <string name="temperature_unit_label">Unité de température (°C / °F / K)</string>
+    <string name="launcher_language_label">Langue du lanceur</string>
+    <string name="notification_listener_label">Badges de notification PixelHome</string>
+    <string name="accessibility_lock_label">Verrouillage double touche PixelHome</string>
+    <string name="accessibility_lock_description">Permet de toucher deux fois l\'écran d\'accueil pour verrouiller l\'appareil.</string>
+</resources>

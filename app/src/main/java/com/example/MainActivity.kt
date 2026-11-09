@@ -14,14 +14,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import android.content.res.Configuration
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.launcher.service.PixelLockAccessibilityService
 import com.example.launcher.ui.LauncherScreen
@@ -56,13 +62,15 @@ class MainActivity : ComponentActivity() {
             val settings = uiState.settings
             val rootView = LocalView.current
 
-            val insetsController = WindowCompat.getInsetsController(window, rootView)
-            if (settings.showStatusBar) {
-                insetsController.show(WindowInsetsCompat.Type.statusBars())
-            } else {
-                insetsController.hide(WindowInsetsCompat.Type.statusBars())
-                insetsController.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            LaunchedEffect(settings.showStatusBar) {
+                val insetsController = WindowCompat.getInsetsController(window, rootView)
+                if (settings.showStatusBar) {
+                    insetsController.show(WindowInsetsCompat.Type.statusBars())
+                } else {
+                    insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                    insetsController.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
             }
 
             val roleHomeLauncher = rememberLauncherForActivityResult(
@@ -129,14 +137,38 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            PixelHomeTheme(
-                themeMode = settings.themeMode,
-                dynamicColor = settings.dynamicColorsEnabled,
-                accentColorHex = settings.accentColorHex,
-                fontFamily = settings.fontFamily,
-                cornerRadiusScale = settings.uiCornerRadiusScale
+            val baseContext = LocalContext.current
+            val baseConfiguration = LocalConfiguration.current
+            val (localizedConfig, localizedContext) = remember(
+                baseContext,
+                baseConfiguration,
+                settings.appLanguage
             ) {
-                LauncherScreen(
+                val tag = settings.appLanguage.languageTag
+                if (tag.isBlank()) {
+                    baseConfiguration to baseContext
+                } else {
+                    val locale = Locale.forLanguageTag(tag)
+                    val newConfig = Configuration(baseConfiguration).apply {
+                        setLocale(locale)
+                    }
+                    val ctx = baseContext.createConfigurationContext(newConfig)
+                    newConfig to ctx
+                }
+            }
+
+            CompositionLocalProvider(
+                LocalConfiguration provides localizedConfig,
+                LocalContext provides localizedContext
+            ) {
+                PixelHomeTheme(
+                    themeMode = settings.themeMode,
+                    dynamicColor = settings.dynamicColorsEnabled,
+                    accentColorHex = settings.accentColorHex,
+                    fontFamily = settings.fontFamily,
+                    cornerRadiusScale = settings.uiCornerRadiusScale
+                ) {
+                    LauncherScreen(
                     uiState = uiState,
                     iconCache = viewModel.iconCache,
                     widgetHostController = viewModel.widgetHostController,
@@ -259,6 +291,7 @@ class MainActivity : ComponentActivity() {
                     onUninstallAppClick = { app -> viewModel.uninstallApp(app) },
                     onTriggerSearchGestureFocus = { viewModel.triggerDrawerSearchFocus() }
                 )
+                }
             }
         }
     }
@@ -302,11 +335,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private var lastAppliedBlurRadiusPx: Int = -1
+
     private fun applyWindowBackgroundBlur(progress: Float) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             runCatching {
                 val radiusPx = (progress.coerceIn(0f, 1f) * 44f).roundToInt()
-                window.setBackgroundBlurRadius(radiusPx)
+                if (radiusPx != lastAppliedBlurRadiusPx) {
+                    lastAppliedBlurRadiusPx = radiusPx
+                    window.setBackgroundBlurRadius(radiusPx)
+                }
             }
         }
     }

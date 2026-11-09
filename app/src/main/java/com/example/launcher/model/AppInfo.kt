@@ -3,7 +3,9 @@ package com.example.launcher.model
 import android.content.ComponentName
 import android.os.Process
 import android.os.UserHandle
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class AppShortcutItem(
     val id: String,
     val shortLabel: String,
@@ -22,7 +24,9 @@ enum class AppCategoryType(val displayName: String) {
 
 /**
  * Represents an installed launchable application across Personal or Work profiles.
+ * Marked [@Immutable] and caches derived keys so Compose skips unnecessary recompositions.
  */
+@Immutable
 data class AppInfo(
     val packageName: String,
     val activityName: String,
@@ -39,15 +43,13 @@ data class AppInfo(
     val accentTintSeed: Int = 0xFF4285F4.toInt(),
     val isSynthesizedSample: Boolean = false
 ) {
-    val componentKey: String
-        get() = "$packageName/$activityName#$userSerial"
+    val componentKey: String = "$packageName/$activityName#$userSerial"
 
     val componentName: ComponentName
         get() = ComponentName(packageName, activityName)
 
-    val initialLetter: String
-        get() {
-            val first = label.trim().firstOrNull()?.uppercaseChar() ?: '#'
-            return if (first in 'A'..'Z') first.toString() else "#"
-        }
+    val initialLetter: String = run {
+        val first = label.trim().firstOrNull()?.uppercaseChar() ?: '#'
+        if (first in 'A'..'Z') first.toString() else "#"
+    }
 }

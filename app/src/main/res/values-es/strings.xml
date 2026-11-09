@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">Haz de PixelHome tu pantalla de inicio predeterminada</string>
+    <string name="set_default_launcher_subtitle">Disfruta de iconos squircle, física fluida y personalización Material You.</string>
+    <string name="set_default_action">Predeterminar</string>
+    <string name="dismiss_action">Ahora no</string>
+    <string name="search_apps_hint">Buscar apps, web y atajos</string>
+    <string name="work_profile_tab">Trabajo</string>
+    <string name="personal_profile_tab">Personal</string>
+    <string name="wallpaper_and_style">Fondo de pantalla y estilo</string>
+    <string name="widgets_menu">Widgets</string>
+    <string name="home_settings">Ajustes de inicio</string>
+    <string name="suggested_apps">Sugerencias</string>
+    <string name="all_apps">Todas las aplicaciones</string>
+    <string name="battery_title">Batería</string>
+    <string name="battery_charging">Batería · Cargando</string>
+    <string name="weather_mostly_sunny">Mayormente soleado</string>
+    <string name="greeting_morning">Buenos días · Cielo despejado · Calendario</string>
+    <string name="greeting_afternoon">Sincronización · 14:30 · Toca para Calendario</string>
+    <string name="greeting_evening">Buenas tardes · Atardecer 19:48 · Calendario</string>
+    <string name="greeting_night">Modo nocturno · Toca para abrir Calendario</string>
+    <string name="empty_search_title">Ninguna app coincide con \"%1$s\"</string>
+    <string name="empty_search_subtitle">Prueba con otra palabra clave o busca en la web.</string>
+    <string name="clear_search_filter">Borrar filtro de búsqueda</string>
+    <string name="temperature_unit_label">Unidad de temperatura (°C / °F / K)</string>
+    <string name="launcher_language_label">Idioma del lanzador</string>
+    <string name="notification_listener_label">Insignias de notificación PixelHome</string>
+    <string name="accessibility_lock_label">Bloqueo con doble toque PixelHome</string>
+    <string name="accessibility_lock_description">Permite tocar dos veces la pantalla de inicio para bloquear el dispositivo.</string>
+</resources>

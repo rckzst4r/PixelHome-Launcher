@@ -1,6 +1,13 @@
 package com.example.launcher.model
 
+import androidx.compose.runtime.Immutable
 import com.squareup.moshi.JsonClass
+
+enum class MiuiIconFallbackMode(val displayName: String) {
+    DUOTONE_TINT("MIUI Duotone Shader Tint (Recommended)"),
+    SAFE_PLATE("Original Icon on Colored Plate"),
+    FULL_BLEED_ORIGINAL("Untinted Original Icon")
+}
 
 enum class IconShapePreset(val displayName: String) {
     SQUIRCLE("Squircle (Superellipse)"),
@@ -159,6 +166,45 @@ enum class LauncherGestureAction(val displayName: String) {
     NOTHING("Do Nothing")
 }
 
+enum class TemperatureUnit(val symbol: String, val displayName: String) {
+    CELSIUS("°C", "Celsius (°C)"),
+    FAHRENHEIT("°F", "Fahrenheit (°F)"),
+    KELVIN("K", "Kelvin (K)");
+
+    fun convertFromFahrenheit(fahrenheit: Int): Int {
+        return when (this) {
+            FAHRENHEIT -> fahrenheit
+            CELSIUS -> Math.round((fahrenheit - 32) * 5.0f / 9.0f)
+            KELVIN -> Math.round((fahrenheit - 32) * 5.0f / 9.0f + 273.15f)
+        }
+    }
+
+    fun formatTemp(fahrenheit: Int): String {
+        val v = convertFromFahrenheit(fahrenheit)
+        return "$v$symbol"
+    }
+
+    fun formatCompact(fahrenheit: Int): String {
+        val v = convertFromFahrenheit(fahrenheit)
+        return if (this == KELVIN) "${v}K" else "$v°"
+    }
+}
+
+enum class AppLanguage(
+    val languageTag: String,
+    val displayName: String
+) {
+    SYSTEM("", "System Default"),
+    ENGLISH("en", "English"),
+    SPANISH("es", "Español (Spanish)"),
+    FRENCH("fr", "Français (French)"),
+    GERMAN("de", "Deutsch (German)"),
+    PORTUGUESE("pt", "Português (Portuguese)"),
+    JAPANESE("ja", "日本語 (Japanese)"),
+    CHINESE("zh", "中文 (Chinese)")
+}
+
+@Immutable
 @JsonClass(generateAdapter = true)
 data class CustomAppOverride(
     val componentKey: String,
@@ -169,8 +215,10 @@ data class CustomAppOverride(
 
 /**
  * Single comprehensive settings model covering all PixelHome customization options,
- * including App Color Studio, Tablet & Foldable Adaptive Mode, and Universal Android Support.
+ * including App Color Studio, Tablet & Foldable Adaptive Mode, Weather Units, Language,
+ * and Universal Android Support.
  */
+@Immutable
 @JsonClass(generateAdapter = true)
 data class LauncherSettings(
     // 1. Icons & App Colors
@@ -190,11 +238,12 @@ data class LauncherSettings(
     val globalAppPlateColorHex: String = "#1B2234",
     val globalAppGlyphColorHex: String = "#7AB8FF",
     val appColorHarmonyIntensity: Float = 0.72f,
+    val miuiIconFallbackMode: MiuiIconFallbackMode = MiuiIconFallbackMode.DUOTONE_TINT,
     val legacyIconPlateHex: String = "#F3F5FA",
     val customAppOverrides: Map<String, CustomAppOverride> = emptyMap(),
     val badgeStyle: BadgeStyle = BadgeStyle.DOT,
 
-    // 2. Home Grid & Workspace
+    // 2. Home Grid, At a Glance & Weather
     val gridColumns: Int = 5, // 4 to 7
     val gridRows: Int = 5, // 4 to 7
     val gridHorizontalPaddingDp: Int = 14,
@@ -208,6 +257,8 @@ data class LauncherSettings(
     val showAtAGlance: Boolean = true,
     val atAGlanceDateFormat: String = "EEE, MMM d",
     val atAGlanceShowWeather: Boolean = true,
+    val temperatureUnit: TemperatureUnit = TemperatureUnit.CELSIUS,
+    val appLanguage: AppLanguage = AppLanguage.SYSTEM,
 
     // 3. Tablet, Foldable & Universal Android Support
     val tabletLayoutMode: TabletLayoutMode = TabletLayoutMode.AUTO,

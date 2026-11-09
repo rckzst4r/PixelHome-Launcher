@@ -34,7 +34,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -50,6 +52,9 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.res.stringResource
+import com.example.R
+import com.example.launcher.model.TemperatureUnit
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -62,9 +67,9 @@ enum class BuiltInPixelWidgetType(
     val defaultSpanX: Int,
     val defaultSpanY: Int
 ) {
-    PIXEL_CLOCK("builtin:pixel_clock", "Pixel Analog & Digital Clock", "Scalloped Material You timepiece", 2, 2),
-    PIXEL_WEATHER("builtin:pixel_weather", "Pixel Weather Card", "Current temperature & high/low conditions", 2, 2),
-    PIXEL_BATTERY("builtin:pixel_battery", "Device Battery & Memory", "Live battery level & system status", 3, 1)
+    PIXEL_CLOCK("builtin:pixel_clock", "Analog & Digital Clock", "Scalloped Material You timepiece", 2, 2),
+    PIXEL_WEATHER("builtin:pixel_weather", "Weather Card", "Current temperature & high/low conditions (°C/°F/K)", 2, 2),
+    PIXEL_BATTERY("builtin:pixel_battery", "Battery", "Live battery level & charging status", 3, 1)
 }
 
 data class SystemWidgetCandidate(
@@ -164,6 +169,7 @@ fun WorkspaceWidgetTile(
     componentKey: String,
     appWidgetId: Int,
     widgetHostController: WidgetHostController,
+    temperatureUnit: TemperatureUnit = TemperatureUnit.CELSIUS,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -182,7 +188,7 @@ fun WorkspaceWidgetTile(
         if (builtIn != null) {
             when (builtIn) {
                 BuiltInPixelWidgetType.PIXEL_CLOCK -> BuiltInPixelClockWidget()
-                BuiltInPixelWidgetType.PIXEL_WEATHER -> BuiltInPixelWeatherWidget()
+                BuiltInPixelWidgetType.PIXEL_WEATHER -> BuiltInPixelWeatherWidget(temperatureUnit)
                 BuiltInPixelWidgetType.PIXEL_BATTERY -> BuiltInPixelBatteryWidget()
             }
         } else if (appWidgetId > 0) {
@@ -213,12 +219,30 @@ fun WorkspaceWidgetTile(
 
 @Composable
 private fun BuiltInPixelClockWidget() {
-    val calendar = remember { Calendar.getInstance() }
-    val timeText = remember { SimpleDateFormat("h:mm", Locale.getDefault()).format(Date()) }
-    val dateText = remember { SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date()) }
+    var currentMillis by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis())
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val delayToNextMinute = (60_000L - (now % 60_000L)).coerceIn(1_000L, 60_000L)
+            kotlinx.coroutines.delay(delayToNextMinute)
+            currentMillis = System.currentTimeMillis()
+        }
+    }
+
+    val (hour, minute, timeText, dateText) = remember(currentMillis / 60_000L) {
+        val cal = Calendar.getInstance().apply { timeInMillis = currentMillis }
+        val h = cal.get(Calendar.HOUR)
+        val m = cal.get(Calendar.MINUTE)
+        val tStr = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(currentMillis))
+        val dStr = SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date(currentMillis))
+        listOf(h, m, tStr, dStr)
+    }
+
     val primary = MaterialTheme.colorScheme.primary
     val tertiary = MaterialTheme.colorScheme.tertiary
-    val containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f)
+    val containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f)
     val onContainer = MaterialTheme.colorScheme.onSecondaryContainer
 
     Surface(
@@ -226,6 +250,10 @@ private fun BuiltInPixelClockWidget() {
         color = containerColor,
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
         modifier = Modifier.fillMaxSize()
     ) {
         Row(
@@ -235,28 +263,41 @@ private fun BuiltInPixelClockWidget() {
                 .fillMaxSize()
                 .padding(12.dp)
         ) {
-            Canvas(modifier = Modifier.size(54.dp)) {
+            Canvas(modifier = Modifier.size(56.dp)) {
                 val r = min(size.width, size.height) / 2f
-                drawCircle(
-                    color = primary.copy(alpha = 0.22f),
-                    radius = r
+                // Draw Material You 12-lobe scalloped clover dial background
+                val path = androidx.compose.ui.graphics.Path()
+                val steps = 72
+                for (i in 0..steps) {
+                    val theta = (i.toDouble() / steps) * 2.0 * PI
+                    val wave = 1.0 + 0.065 * cos(12.0 * theta)
+                    val rad = (r * 0.93f) * wave.toFloat()
+                    val x = center.x + rad * cos(theta).toFloat()
+                    val y = center.y + rad * sin(theta).toFloat()
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                path.close()
+                drawPath(
+                    path = path,
+                    color = primary.copy(alpha = 0.22f)
                 )
-                drawCircle(
+                drawPath(
+                    path = path,
                     color = primary,
-                    radius = r,
-                    style = Stroke(width = 3.dp.toPx())
+                    style = Stroke(width = 2.5.dp.toPx())
                 )
-                val hour = calendar.get(Calendar.HOUR)
-                val minute = calendar.get(Calendar.MINUTE)
-                val hourAngle = ((hour + minute / 60f) * 30f - 90f) * (PI / 180f)
-                val minAngle = (minute * 6f - 90f) * (PI / 180f)
+
+                val hInt = hour as Int
+                val mInt = minute as Int
+                val hourAngle = ((hInt + mInt / 60f) * 30f - 90f) * (PI / 180f)
+                val minAngle = (mInt * 6f - 90f) * (PI / 180f)
 
                 drawLine(
                     color = onContainer,
                     start = center,
                     end = Offset(
-                        center.x + (r * 0.5f * cos(hourAngle)).toFloat(),
-                        center.y + (r * 0.5f * sin(hourAngle)).toFloat()
+                        center.x + (r * 0.48f * cos(hourAngle)).toFloat(),
+                        center.y + (r * 0.48f * sin(hourAngle)).toFloat()
                     ),
                     strokeWidth = 3.5.dp.toPx(),
                     cap = StrokeCap.Round
@@ -271,20 +312,26 @@ private fun BuiltInPixelClockWidget() {
                     strokeWidth = 2.5.dp.toPx(),
                     cap = StrokeCap.Round
                 )
+                drawCircle(
+                    color = primary,
+                    radius = 3.dp.toPx(),
+                    center = center
+                )
             }
 
             Column(horizontalAlignment = Alignment.Start) {
                 Text(
-                    text = timeText,
+                    text = timeText as String,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = onContainer
                     )
                 )
                 Text(
-                    text = dateText,
+                    text = dateText as String,
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = onContainer.copy(alpha = 0.8f)
+                        fontWeight = FontWeight.Medium,
+                        color = onContainer.copy(alpha = 0.82f)
                     )
                 )
             }
@@ -293,12 +340,23 @@ private fun BuiltInPixelClockWidget() {
 }
 
 @Composable
-private fun BuiltInPixelWeatherWidget() {
+private fun BuiltInPixelWeatherWidget(
+    temperatureUnit: TemperatureUnit = TemperatureUnit.CELSIUS
+) {
+    val currentTempText = remember(temperatureUnit) { temperatureUnit.formatTemp(72) }
+    val highLowText = remember(temperatureUnit) {
+        "H: ${temperatureUnit.formatCompact(76)} · L: ${temperatureUnit.formatCompact(58)} · UV 4"
+    }
+
     Surface(
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.94f),
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
@@ -313,9 +371,9 @@ private fun BuiltInPixelWeatherWidget() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "72°",
+                    text = currentTempText,
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        fontSize = 30.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -329,16 +387,16 @@ private fun BuiltInPixelWeatherWidget() {
             }
             Column {
                 Text(
-                    text = "Mostly Sunny",
+                    text = stringResource(R.string.weather_mostly_sunny),
                     style = MaterialTheme.typography.labelLarge.copy(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 )
                 Text(
-                    text = "H: 76° · L: 58°",
+                    text = highLowText,
                     style = MaterialTheme.typography.labelSmall.copy(
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f)
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.80f)
                     )
                 )
             }
@@ -349,20 +407,34 @@ private fun BuiltInPixelWeatherWidget() {
 @Composable
 private fun BuiltInPixelBatteryWidget() {
     val context = LocalContext.current
-    val batteryPct = remember {
+    val (batteryPct, isCharging) = remember {
         runCatching {
             val status = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val level = status?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
             val scale = status?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-            if (level >= 0 && scale > 0) (level * 100) / scale else 86
-        }.getOrDefault(86)
+            val chargeStatus = status?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            val charging = chargeStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
+                chargeStatus == BatteryManager.BATTERY_STATUS_FULL
+            val pct = if (level >= 0 && scale > 0) (level * 100) / scale else 86
+            pct to charging
+        }.getOrDefault(86 to false)
+    }
+
+    val batteryTitle = if (isCharging) {
+        stringResource(R.string.battery_charging)
+    } else {
+        stringResource(R.string.battery_title)
     }
 
     Surface(
         shape = RoundedCornerShape(26.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
         modifier = Modifier.fillMaxSize()
     ) {
         Row(
@@ -374,12 +446,12 @@ private fun BuiltInPixelBatteryWidget() {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(38.dp)
-                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
             ) {
                 Icon(
                     imageVector = Icons.Filled.BatteryChargingFull,
-                    contentDescription = "Battery",
+                    contentDescription = batteryTitle,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(20.dp)
                 )
@@ -388,10 +460,11 @@ private fun BuiltInPixelBatteryWidget() {
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "Pixel Device Battery",
+                        text = batteryTitle,
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface
                     )

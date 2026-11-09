@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TabletAndroid
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -69,12 +70,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import android.content.res.Configuration
+import android.os.Build
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.launcher.icon.IconCache
@@ -98,11 +101,14 @@ import com.example.launcher.model.LabelColorMode
 import com.example.launcher.model.LauncherFontFamily
 import com.example.launcher.model.LauncherGestureAction
 import com.example.launcher.model.LauncherSettings
+import com.example.launcher.model.MiuiIconFallbackMode
 import com.example.launcher.model.OemCompatibilityProfile
 import com.example.launcher.model.PageIndicatorStyle
+import com.example.launcher.model.AppLanguage
 import com.example.launcher.model.SearchBarPosition
 import com.example.launcher.model.SearchBarStyle
 import com.example.launcher.model.SearchEngine
+import com.example.launcher.model.TemperatureUnit
 import com.example.launcher.model.ThemeMode
 import com.example.ui.theme.parseHexColorSafe
 import java.util.Locale
@@ -440,6 +446,16 @@ fun QuickStyleAndSettingsSheet(
             }
         )
     }
+
+    if (showWelcomeDialogInSettings) {
+        PixelWelcomeScreenDialog(
+            visible = true,
+            isDefaultHome = true,
+            onRequestSetDefaultHome = {},
+            onGetStarted = { showWelcomeDialogInSettings = false },
+            onDismiss = { showWelcomeDialogInSettings = false }
+        )
+    }
 }
 
 @Composable
@@ -469,6 +485,11 @@ private fun SettingsScrollableContent(
         // =====================================================
         if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.APP_COLORS) {
             SectionHeader("App Color Studio (Global & Per-App Colors)")
+
+            MiuiIconCompatibilityWarningCard(
+                settings = settings,
+                onUpdateSettings = onUpdateSettings
+            )
 
             Text("App Icon Color Mode", style = MaterialTheme.typography.bodyMedium)
             Row(
@@ -736,6 +757,26 @@ private fun SettingsScrollableContent(
                 }
             )
 
+            Text(
+                text = "Launcher Language (Multi-Language Support)",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                AppLanguage.entries.forEach { lang ->
+                    FilterChip(
+                        selected = settings.appLanguage == lang,
+                        onClick = { onUpdateSettings { it.copy(appLanguage = lang) } },
+                        label = { Text(lang.displayName) },
+                        modifier = Modifier.testTag("language_chip_${lang.name.lowercase()}")
+                    )
+                }
+            }
+
             HorizontalDivider()
         }
 
@@ -744,6 +785,13 @@ private fun SettingsScrollableContent(
         // =====================================================
         if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.ICONS) {
             SectionHeader("1. Icons & Squircle Engine (|x|ⁿ + |y|ⁿ = 1)")
+
+            if (activeSection == SettingsSectionTab.ICONS) {
+                MiuiIconCompatibilityWarningCard(
+                    settings = settings,
+                    onUpdateSettings = onUpdateSettings
+                )
+            }
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1038,6 +1086,26 @@ private fun SettingsScrollableContent(
                 checked = settings.atAGlanceShowWeather,
                 onCheckedChange = { v -> onUpdateSettings { it.copy(atAGlanceShowWeather = v) } }
             )
+
+            Text(
+                text = "Weather Temperature Unit (Celsius · Fahrenheit · Kelvin)",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                TemperatureUnit.entries.forEach { unit ->
+                    FilterChip(
+                        selected = settings.temperatureUnit == unit,
+                        onClick = { onUpdateSettings { it.copy(temperatureUnit = unit) } },
+                        label = { Text("${unit.displayName} — ${unit.formatTemp(72)}") },
+                        modifier = Modifier.testTag("temp_unit_chip_${unit.name.lowercase()}")
+                    )
+                }
+            }
 
             Text("At a Glance Date Format", style = MaterialTheme.typography.bodyMedium)
             Row(
@@ -1814,6 +1882,146 @@ private fun LiveHomePreviewBanner(
 }
 
 @Composable
+private fun MiuiIconCompatibilityWarningCard(
+    settings: LauncherSettings,
+    onUpdateSettings: ((LauncherSettings) -> LauncherSettings) -> Unit
+) {
+    val isMiDevice = IconCache.isXiaomiOrMiuiDevice
+    val deviceManufacturer = remember {
+        (Build.MANUFACTURER ?: "Android").replaceFirstChar {
+            if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+        }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xFF2D1E12),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.5.dp,
+            color = Color(0xFFFFB74D).copy(alpha = 0.78f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("miui_icon_warning_card")
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFB74D).copy(alpha = 0.22f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = "MIUI Icon Warning",
+                        tint = Color(0xFFFFB74D),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isMiDevice) {
+                            "Xiaomi / MIUI / HyperOS Device Detected ($deviceManufacturer)"
+                        } else {
+                            "MI / Xiaomi & OEM Icon Coloring Warning"
+                        },
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFE082)
+                        )
+                    )
+                    Text(
+                        text = "Important notice for MI (MIUI / HyperOS) devices",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFFFCC80)
+                    )
+                }
+            }
+
+            Text(
+                text = "On Xiaomi, Redmi, and POCO phones, MIUI/HyperOS system themes pre-bake app icons into flattened bitmaps and block standard Android 13 monochrome vector layers. If colored icons appear distorted or fail to recolor properly on your MI device, choose a compatible MI rendering mode below or reset to original icons:",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = Color(0xFFFFF3E0),
+                    lineHeight = 17.sp
+                )
+            )
+
+            Text(
+                text = "MI / Non-Monochrome Icon Rendering Mode:",
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFFFE082)
+                )
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                MiuiIconFallbackMode.entries.forEach { mode ->
+                    val selected = settings.miuiIconFallbackMode == mode
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            onUpdateSettings {
+                                it.copy(
+                                    miuiIconFallbackMode = mode,
+                                    oemCompatibilityProfile = OemCompatibilityProfile.XIAOMI_HYPER_OS
+                                )
+                            }
+                        },
+                        label = { Text(mode.displayName) }
+                    )
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        onUpdateSettings {
+                            it.copy(
+                                appColorPaletteMode = AppColorPaletteMode.ORIGINAL,
+                                themedIconsEnabled = false,
+                                themedIconsInDrawer = false,
+                                iconPackPackage = "",
+                                customAppOverrides = emptyMap()
+                            )
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        tint = Color(0xFFFFE082),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Use Original Untinted Icons",
+                        color = Color(0xFFFFE082),
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SectionHeader(title: String) {
     Text(
         text = title,
@@ -2025,6 +2233,30 @@ private fun PerAppOverrideEditorDialog(
                                 onClick = { _, _ -> }
                             )
                         }
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF2D1E12),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFB74D).copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = Color(0xFFFFB74D),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Note: On Xiaomi (MIUI/HyperOS) devices, system icon masks block Android monochrome layers. Duotone shader mode will be used instead.",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = Color(0xFFFFE082)
+                        )
                     }
                 }
                 Text(

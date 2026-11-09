@@ -28,50 +28,70 @@ import kotlin.math.sin
  */
 internal object SquirclePathCache {
     private val pathCache = object : LruCache<String, Path>(180) {}
+    private val lock = Any()
 
     fun getSuperellipsePath(width: Float, height: Float, n: Float): Path {
-        val wKey = (width * 2f).roundToInt()
-        val hKey = (height * 2f).roundToInt()
-        val nKey = (n * 10f).roundToInt()
+        val safeW = if (width.isFinite() && width > 1f) width else 1f
+        val safeH = if (height.isFinite() && height > 1f) height else 1f
+        val safeN = if (n.isFinite()) n.coerceIn(2.0f, 10.0f) else 4.0f
+
+        val wKey = (safeW * 2f).roundToInt()
+        val hKey = (safeH * 2f).roundToInt()
+        val nKey = (safeN * 10f).roundToInt()
         val key = "sq_${wKey}_${hKey}_$nKey"
 
-        pathCache.get(key)?.let { return it }
+        synchronized(lock) {
+            pathCache.get(key)?.let { return it }
+        }
 
+        // Analytical 4-quadrant cubic Bézier superellipse:
+        // Strictly convex, C2-smooth, 18x fewer segments than a 72-line polygon.
         val path = Path()
-        val a = width / 2f
-        val b = height / 2f
+        val a = safeW / 2f
+        val b = safeH / 2f
         val cx = a
         val cy = b
-        val power = 2.0 / n.toDouble()
-        val steps = 72
+        val diagRatio = 2.0.pow(-1.0 / safeN.toDouble()).toFloat()
+        val k = ((diagRatio - 0.5f) / 0.375f).coerceIn(0.5522848f, 0.965f)
+        val kx = a * k
+        val ky = b * k
 
-        for (i in 0 until steps) {
-            val theta = (2.0 * PI * i) / steps
-            val cosT = cos(theta)
-            val sinT = sin(theta)
-            val x = cx + a * sign(cosT).toFloat() * abs(cosT).pow(power).toFloat()
-            val y = cy + b * sign(sinT).toFloat() * abs(sinT).pow(power).toFloat()
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-        }
+        // Start at top-center (cx, 0) and sweep clockwise through 4 quadrants
+        path.moveTo(cx, 0f)
+        // Top-Right quadrant: (cx, 0) -> (safeW, cy)
+        path.cubicTo(cx + kx, 0f, safeW, cy - ky, safeW, cy)
+        // Bottom-Right quadrant: (safeW, cy) -> (cx, safeH)
+        path.cubicTo(safeW, cy + ky, cx + kx, safeH, cx, safeH)
+        // Bottom-Left quadrant: (cx, safeH) -> (0, cy)
+        path.cubicTo(cx - kx, safeH, 0f, cy + ky, 0f, cy)
+        // Top-Left quadrant: (0, cy) -> (cx, 0)
+        path.cubicTo(0f, cy - ky, cx - kx, 0f, cx, 0f)
         path.close()
-        pathCache.put(key, path)
+
+        synchronized(lock) {
+            pathCache.put(key, path)
+        }
         return path
     }
 
     fun getFlowerScallopPath(width: Float, height: Float): Path {
-        val wKey = (width * 2f).roundToInt()
-        val hKey = (height * 2f).roundToInt()
+        val safeW = if (width.isFinite() && width > 1f) width else 1f
+        val safeH = if (height.isFinite() && height > 1f) height else 1f
+        val wKey = (safeW * 2f).roundToInt()
+        val hKey = (safeH * 2f).roundToInt()
         val key = "fl_${wKey}_$hKey"
 
-        pathCache.get(key)?.let { return it }
+        synchronized(lock) {
+            pathCache.get(key)?.let { return it }
+        }
 
         val path = Path()
-        val cx = width / 2f
-        val cy = height / 2f
-        val baseR = min(width, height) * 0.45f
-        val waveAmp = min(width, height) * 0.048f
+        val cx = safeW / 2f
+        val cy = safeH / 2f
+        val baseR = min(safeW, safeH) * 0.45f
+        val waveAmp = min(safeW, safeH) * 0.048f
         val petals = 8
-        val steps = 80
+        val steps = 48
         for (i in 0 until steps) {
             val theta = (2.0 * PI * i) / steps
             val r = baseR + waveAmp * cos(petals * theta).toFloat()
@@ -80,23 +100,29 @@ internal object SquirclePathCache {
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         path.close()
-        pathCache.put(key, path)
+        synchronized(lock) {
+            pathCache.put(key, path)
+        }
         return path
     }
 
     fun getRoundedHexagonPath(width: Float, height: Float): Path {
-        val wKey = (width * 2f).roundToInt()
-        val hKey = (height * 2f).roundToInt()
+        val safeW = if (width.isFinite() && width > 1f) width else 1f
+        val safeH = if (height.isFinite() && height > 1f) height else 1f
+        val wKey = (safeW * 2f).roundToInt()
+        val hKey = (safeH * 2f).roundToInt()
         val key = "hex_${wKey}_$hKey"
 
-        pathCache.get(key)?.let { return it }
+        synchronized(lock) {
+            pathCache.get(key)?.let { return it }
+        }
 
         val path = Path()
-        val cx = width / 2f
-        val cy = height / 2f
-        val rx = width * 0.48f
-        val ry = height * 0.48f
-        val steps = 72
+        val cx = safeW / 2f
+        val cy = safeH / 2f
+        val rx = safeW * 0.48f
+        val ry = safeH * 0.48f
+        val steps = 36
         for (i in 0 until steps) {
             val theta = (2.0 * PI * i) / steps
             val hexMod = 0.93f + 0.07f * cos(6.0 * theta).toFloat()
@@ -105,23 +131,29 @@ internal object SquirclePathCache {
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         path.close()
-        pathCache.put(key, path)
+        synchronized(lock) {
+            pathCache.put(key, path)
+        }
         return path
     }
 
     fun getOrganicPebblePath(width: Float, height: Float): Path {
-        val wKey = (width * 2f).roundToInt()
-        val hKey = (height * 2f).roundToInt()
+        val safeW = if (width.isFinite() && width > 1f) width else 1f
+        val safeH = if (height.isFinite() && height > 1f) height else 1f
+        val wKey = (safeW * 2f).roundToInt()
+        val hKey = (safeH * 2f).roundToInt()
         val key = "peb_${wKey}_$hKey"
 
-        pathCache.get(key)?.let { return it }
+        synchronized(lock) {
+            pathCache.get(key)?.let { return it }
+        }
 
         val path = Path()
-        val cx = width / 2f
-        val cy = height / 2f
-        val rx = width * 0.47f
-        val ry = height * 0.47f
-        val steps = 72
+        val cx = safeW / 2f
+        val cy = safeH / 2f
+        val rx = safeW * 0.47f
+        val ry = safeH * 0.47f
+        val steps = 36
         for (i in 0 until steps) {
             val theta = (2.0 * PI * i) / steps
             val asym = 1.0f + 0.045f * sin(2.0 * theta + 0.6).toFloat() - 0.025f * cos(3.0 * theta).toFloat()
@@ -130,19 +162,19 @@ internal object SquirclePathCache {
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         path.close()
-        pathCache.put(key, path)
+        synchronized(lock) {
+            pathCache.put(key, path)
+        }
         return path
     }
 }
 
 /**
- * True Superellipse Squircle Shape:
+ * Hardware-Accelerated Squircle Shape:
  *
- * Implements the Lamé curve / superellipse equation:
- *   |x / a|^n + |y / b|^n = 1
- *
- * Fully optimized with hardware acceleration and [SquirclePathCache] to achieve
- * lock-solid 120fps animations without Garbage Collection pressure.
+ * Uses native GPU RenderNode RoundRect clipping (`Outline.Rounded`) for `SQUIRCLE`, `CIRCLE`,
+ * `ROUNDED_SQUARE`, `SQUARE`, and `TEARDROP` so scrolling in `LazyVerticalGrid` has zero
+ * software/stencil `clipPath` cost and zero per-frame allocations.
  */
 @Immutable
 class SquircleShape(
@@ -155,7 +187,7 @@ class SquircleShape(
         layoutDirection: LayoutDirection,
         density: Density
     ): Outline {
-        if (size.width <= 0f || size.height <= 0f) {
+        if (!size.width.isFinite() || !size.height.isFinite() || size.width <= 0f || size.height <= 0f) {
             return Outline.Rectangle(Rect.Zero)
         }
 
@@ -181,7 +213,8 @@ class SquircleShape(
             }
 
             IconShapePreset.ROUNDED_SQUARE -> {
-                val normalized = ((exponent.coerceIn(2f, 10f) - 2f) / 8f)
+                val safeExp = if (exponent.isFinite()) exponent.coerceIn(2f, 10f) else 4f
+                val normalized = ((safeExp - 2f) / 8f)
                 val fraction = (0.45f - normalized * 0.27f).coerceIn(0.14f, 0.48f)
                 val r = min(size.width, size.height) * fraction
                 Outline.Rounded(
@@ -219,11 +252,14 @@ class SquircleShape(
             }
 
             IconShapePreset.SQUIRCLE -> {
-                Outline.Generic(
-                    SquirclePathCache.getSuperellipsePath(
-                        size.width,
-                        size.height,
-                        exponent.coerceIn(2.0f, 10.0f)
+                val safeExp = if (exponent.isFinite()) exponent.coerceIn(2.0f, 10.0f) else 4.0f
+                val normalized = ((safeExp - 2.0f) / 8.0f)
+                val fraction = (0.46f - normalized * 0.30f).coerceIn(0.15f, 0.48f)
+                val r = min(size.width, size.height) * fraction
+                Outline.Rounded(
+                    RoundRect(
+                        rect = Rect(0f, 0f, size.width, size.height),
+                        cornerRadius = CornerRadius(r, r)
                     )
                 )
             }

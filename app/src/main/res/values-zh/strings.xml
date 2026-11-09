@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">将 PixelHome 设为默认桌面</string>
+    <string name="set_default_launcher_subtitle">体验超椭圆图标、弹簧物理动画与 Material You 个性化定制。</string>
+    <string name="set_default_action">设为默认</string>
+    <string name="dismiss_action">暂不</string>
+    <string name="search_apps_hint">搜索应用、网页和快捷方式</string>
+    <string name="work_profile_tab">工作</string>
+    <string name="personal_profile_tab">个人</string>
+    <string name="wallpaper_and_style">壁纸和样式</string>
+    <string name="widgets_menu">微件</string>
+    <string name="home_settings">主屏幕设置</string>
+    <string name="suggested_apps">常用推荐</string>
+    <string name="all_apps">所有应用</string>
+    <string name="battery_title">电池</string>
+    <string name="battery_charging">电池 · 正在充电</string>
+    <string name="weather_mostly_sunny">晴间多云</string>
+    <string name="greeting_morning">早上好 · 晴朗 · 点击打开日历</string>
+    <string name="greeting_afternoon">设计同步 · 14:30 · 点击打开日历</string>
+    <string name="greeting_evening">晚上好 · 日落 19:48 · 日历</string>
+    <string name="greeting_night">静谧夜间模式 · 点击打开日历</string>
+    <string name="empty_search_title">未找到匹配“%1$s”的应用</string>
+    <string name="empty_search_subtitle">请尝试其他关键词或在下方搜索网页。</string>
+    <string name="clear_search_filter">清除搜索筛选</string>
+    <string name="temperature_unit_label">天气温度单位 (°C / °F / K)</string>
+    <string name="launcher_language_label">桌面语言</string>
+    <string name="notification_listener_label">PixelHome 通知角标</string>
+    <string name="accessibility_lock_label">PixelHome 双击锁屏</string>
+    <string name="accessibility_lock_description">允许双击主屏幕空白处锁定设备屏幕。</string>
+</resources>

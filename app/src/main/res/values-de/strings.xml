@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">PixelHome als Standard-Startbildschirm festlegen</string>
+    <string name="set_default_launcher_subtitle">Genieße Squircle-Symbole, Federphysik und Material You-Anpassungen.</string>
+    <string name="set_default_action">Als Standard</string>
+    <string name="dismiss_action">Später</string>
+    <string name="search_apps_hint">Apps, Web &amp; Verknüpfungen suchen</string>
+    <string name="work_profile_tab">Arbeit</string>
+    <string name="personal_profile_tab">Privat</string>
+    <string name="wallpaper_and_style">Hintergrund &amp; Stil</string>
+    <string name="widgets_menu">Widgets</string>
+    <string name="home_settings">Startbildschirm-Einstellungen</string>
+    <string name="suggested_apps">Vorgeschlagen</string>
+    <string name="all_apps">Alle Apps</string>
+    <string name="battery_title">Akku</string>
+    <string name="battery_charging">Akku · Wird geladen</string>
+    <string name="weather_mostly_sunny">Meist sonnig</string>
+    <string name="greeting_morning">Guten Morgen · Klarer Himmel · Kalender</string>
+    <string name="greeting_afternoon">Design-Sync · 14:30 · Kalender öffnen</string>
+    <string name="greeting_evening">Guten Abend · Sonnenuntergang 19:48 · Kalender</string>
+    <string name="greeting_night">Nachtmodus · Tippen für Kalender</string>
+    <string name="empty_search_title">Keine Apps gefunden für \"%1$s\"</string>
+    <string name="empty_search_subtitle">Versuche einen anderen Begriff oder suche im Web.</string>
+    <string name="clear_search_filter">Suchfilter löschen</string>
+    <string name="temperature_unit_label">Temperatureinheit (°C / °F / K)</string>
+    <string name="launcher_language_label">Launcher-Sprache</string>
+    <string name="notification_listener_label">PixelHome Benachrichtigungspunkte</string>
+    <string name="accessibility_lock_label">PixelHome Doppeltipp-Sperre</string>
+    <string name="accessibility_lock_description">Ermöglicht das Sperren des Bildschirms durch Doppeltippen auf den Startbildschirm.</string>
+</resources>

@@ -366,17 +366,9 @@ fun FloatingDraggedIconOverlay(
                 .background(Color(app.accentTintSeed))
                 .testTag("floating_dragged_icon")
         ) {
-            iconLayers?.backgroundBitmap?.let { bg ->
+            iconLayers?.compositeBitmap?.let { composite ->
                 Image(
-                    bitmap = bg,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            iconLayers?.foregroundBitmap?.let { fg ->
-                Image(
-                    bitmap = fg,
+                    bitmap = composite,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

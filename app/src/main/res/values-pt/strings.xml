@@ -1,0 +1,30 @@
+<resources>
+    <string name="app_name">PixelHome</string>
+    <string name="set_default_launcher_title">Definir PixelHome como tela inicial padrão</string>
+    <string name="set_default_launcher_subtitle">Aproveite ícones squircle, física fluida e personalização Material You.</string>
+    <string name="set_default_action">Definir padrão</string>
+    <string name="dismiss_action">Agora não</string>
+    <string name="search_apps_hint">Pesquisar apps, web e atalhos</string>
+    <string name="work_profile_tab">Trabalho</string>
+    <string name="personal_profile_tab">Pessoal</string>
+    <string name="wallpaper_and_style">Plano de fundo e estilo</string>
+    <string name="widgets_menu">Widgets</string>
+    <string name="home_settings">Configurações da tela inicial</string>
+    <string name="suggested_apps">Sugeridos</string>
+    <string name="all_apps">Todos os apps</string>
+    <string name="battery_title">Bateria</string>
+    <string name="battery_charging">Bateria · Carregando</string>
+    <string name="weather_mostly_sunny">Predominantemente ensolarado</string>
+    <string name="greeting_morning">Bom dia · Céu limpo · Abrir agenda</string>
+    <string name="greeting_afternoon">Reunião · 14:30 · Toque para Agenda</string>
+    <string name="greeting_evening">Boa noite · Pôr do sol 19:48 · Agenda</string>
+    <string name="greeting_night">Modo noturno · Toque para abrir Agenda</string>
+    <string name="empty_search_title">Nenhum app corresponde a \"%1$s\"</string>
+    <string name="empty_search_subtitle">Tente outra palavra-chave ou pesquise na web.</string>
+    <string name="clear_search_filter">Limpar filtro de pesquisa</string>
+    <string name="temperature_unit_label">Unidade de temperatura (°C / °F / K)</string>
+    <string name="launcher_language_label">Idioma do inicializador</string>
+    <string name="notification_listener_label">Emblemas de notificação PixelHome</string>
+    <string name="accessibility_lock_label">Bloqueio com toque duplo PixelHome</string>
+    <string name="accessibility_lock_description">Permite tocar duas vezes na tela inicial para bloquear a tela.</string>
+</resources>

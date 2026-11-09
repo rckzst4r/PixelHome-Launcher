@@ -102,10 +102,28 @@ class AppLoaderRepository(
         }
     }
 
+    private val activityInfoCache = java.util.concurrent.ConcurrentHashMap<String, LauncherActivityInfo>()
+
+    fun getCachedActivityInfo(componentKey: String): LauncherActivityInfo? {
+        return activityInfoCache[componentKey]
+    }
+
     fun refreshInstalledApps() {
         externalScope.launch(ioDispatcher) {
             val loaded = queryAllLauncherActivities()
             _installedApps.value = loaded
+            // Enrich dynamic shortcuts asynchronously in background if host permission is active
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1 &&
+                launcherApps?.hasShortcutHostPermission() == true
+            ) {
+                val withShortcuts = loaded.map { app ->
+                    if (app.isSynthesizedSample) app
+                    else app.copy(shortcuts = queryAppShortcutsSafe(app.packageName, app.userHandle))
+                }
+                if (withShortcuts != loaded) {
+                    _installedApps.value = withShortcuts
+                }
+            }
         }
     }
 
@@ -116,8 +134,13 @@ class AppLoaderRepository(
         val profiles: List<UserHandle> = userManager?.userProfiles?.ifEmpty { listOf(primaryUser) }
             ?: listOf(primaryUser)
 
-        for (profile in profiles) {
-            val userSerial = userManager?.getSerialNumberForUser(profile) ?: 0L
+        for ((profileIdx, profile) in profiles.withIndex()) {
+            val rawSerial = runCatching { userManager?.getSerialNumberForUser(profile) }.getOrNull()
+            val userSerial = if (rawSerial != null && (profileIdx == 0 || rawSerial != 0L)) {
+                rawSerial
+            } else {
+                profileIdx.toLong()
+            }
             val isWork = profile != primaryUser
             val activities: List<LauncherActivityInfo> = runCatching {
                 launcherApps?.getActivityList(null, profile) ?: emptyList()
@@ -129,31 +152,33 @@ class AppLoaderRepository(
                 val label = info.label?.toString()?.trim().takeUnless { it.isNullOrEmpty() } ?: pkg
                 val category = mapAndroidCategory(info.applicationInfo, pkg, label)
                 val seedColor = pixelPaletteSeeds[(pkg.hashCode() and Int.MAX_VALUE) % pixelPaletteSeeds.size]
-                val shortcuts = queryAppShortcutsSafe(pkg, profile)
+                val shortcuts = buildDefaultShortcuts(pkg)
 
-                result.add(
-                    AppInfo(
-                        packageName = pkg,
-                        activityName = info.componentName.className,
-                        label = label,
-                        userSerial = userSerial,
-                        userHandle = profile,
-                        isWorkProfile = isWork,
-                        firstInstallTime = info.firstInstallTime,
-                        category = category,
-                        shortcuts = shortcuts,
-                        accentTintSeed = seedColor,
-                        isSynthesizedSample = false
-                    )
+                val appInfo = AppInfo(
+                    packageName = pkg,
+                    activityName = info.componentName.className,
+                    label = label,
+                    userSerial = userSerial,
+                    userHandle = profile,
+                    isWorkProfile = isWork,
+                    firstInstallTime = info.firstInstallTime,
+                    category = category,
+                    shortcuts = shortcuts,
+                    accentTintSeed = seedColor,
+                    isSynthesizedSample = false
                 )
+                activityInfoCache[appInfo.componentKey] = info
+                result.add(appInfo)
             }
         }
 
         // If running in a minimal container with very few user apps or no work profile,
         // supplement with realistic work profile & essential Pixel companions so a 5x5 grid,
         // Suggested row, Work tab, and A-Z fast scroller are richly interactive out-of-the-box.
-        val enriched = supplementIfSparse(result)
-        enriched.sortedBy { it.label.lowercase() }
+        val enriched = supplementIfSparse(result.distinctBy { it.componentKey })
+        enriched
+            .distinctBy { it.componentKey }
+            .sortedBy { it.label.lowercase() }
     }
 
     private fun queryAppShortcutsSafe(packageName: String, userHandle: UserHandle): List<AppShortcutItem> {

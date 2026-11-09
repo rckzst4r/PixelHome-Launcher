@@ -97,19 +97,43 @@ fun AtAGlanceWidget(
     onWeatherClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val formattedDate = remember(settings.atAGlanceDateFormat) {
-        runCatching {
-            SimpleDateFormat(settings.atAGlanceDateFormat, Locale.getDefault()).format(Date())
-        }.getOrElse {
-            SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date())
+    val activeLocale = remember(settings.appLanguage) {
+        if (settings.appLanguage.languageTag.isBlank()) {
+            Locale.getDefault()
+        } else {
+            Locale.forLanguageTag(settings.appLanguage.languageTag)
         }
     }
 
-    val textShadow = Shadow(
-        color = Color.Black.copy(alpha = 0.55f),
-        offset = Offset(0f, 2f),
-        blurRadius = 6f
-    )
+    val formattedDate = remember(settings.atAGlanceDateFormat, activeLocale) {
+        runCatching {
+            SimpleDateFormat(settings.atAGlanceDateFormat, activeLocale).format(Date())
+        }.getOrElse {
+            SimpleDateFormat("EEE, MMM d", activeLocale).format(Date())
+        }
+    }
+
+    val formattedTemp = remember(settings.temperatureUnit) {
+        settings.temperatureUnit.formatTemp(72)
+    }
+
+    val hourOfDay = remember {
+        java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+    }
+    val contextualSubtitle = when (hourOfDay) {
+        in 5..11 -> stringResource(R.string.greeting_morning)
+        in 12..16 -> stringResource(R.string.greeting_afternoon)
+        in 17..21 -> stringResource(R.string.greeting_evening)
+        else -> stringResource(R.string.greeting_night)
+    }
+
+    val textShadow = remember {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.50f),
+            offset = Offset(0f, 1.5f),
+            blurRadius = 4f
+        )
+    }
 
     Column(
         modifier = modifier
@@ -129,7 +153,7 @@ fun AtAGlanceWidget(
                 text = formattedDate,
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontSize = 24.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                     shadow = textShadow
                 )
@@ -138,13 +162,17 @@ fun AtAGlanceWidget(
             if (settings.atAGlanceShowWeather) {
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = Color.White.copy(alpha = 0.18f),
+                    color = Color.White.copy(alpha = 0.20f),
+                    border = androidx.compose.foundation.BorderStroke(
+                        width = 0.8.dp,
+                        color = Color.White.copy(alpha = 0.30f)
+                    ),
                     modifier = Modifier.clickable(onClick = onWeatherClick)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.WbSunny,
@@ -153,10 +181,10 @@ fun AtAGlanceWidget(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "72°F",
+                            text = formattedTemp,
                             style = MaterialTheme.typography.labelLarge.copy(
                                 color = Color.White,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                         )
                     }
@@ -177,14 +205,15 @@ fun AtAGlanceWidget(
             Icon(
                 imageVector = Icons.Outlined.CalendarToday,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.90f),
+                tint = Color.White.copy(alpha = 0.92f),
                 modifier = Modifier.size(14.dp)
             )
             Text(
-                text = "Design Sync · 2:30 PM · Tap for Calendar",
+                text = contextualSubtitle,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    color = Color.White.copy(alpha = 0.92f),
+                    color = Color.White.copy(alpha = 0.94f),
                     fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
                     shadow = textShadow
                 ),
                 maxLines = 1,
@@ -274,7 +303,8 @@ fun DefaultHomeRoleBanner(
 }
 
 /**
- * Pixel Launcher bottom pill search bar under the 4-icon hotseat.
+ * Pixel Launcher bottom pill search bar under the hotseat with Material You tonal elevation,
+ * subtle specular border, and quick-action Voice & Lens triggers.
  */
 @Composable
 fun PixelSearchBar(
@@ -284,10 +314,12 @@ fun PixelSearchBar(
     onLensClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = when (settings.searchBarStyle) {
-        SearchBarStyle.PILL -> RoundedCornerShape(settings.searchBarCornerRadiusDp.dp)
-        SearchBarStyle.ROUNDED -> RoundedCornerShape(16.dp)
-        SearchBarStyle.FLAT -> RoundedCornerShape(8.dp)
+    val shape = remember(settings.searchBarStyle, settings.searchBarCornerRadiusDp) {
+        when (settings.searchBarStyle) {
+            SearchBarStyle.PILL -> RoundedCornerShape(settings.searchBarCornerRadiusDp.dp)
+            SearchBarStyle.ROUNDED -> RoundedCornerShape(16.dp)
+            SearchBarStyle.FLAT -> RoundedCornerShape(8.dp)
+        }
     }
 
     Surface(
@@ -295,8 +327,12 @@ fun PixelSearchBar(
         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(
             alpha = settings.searchBarOpacity.coerceIn(0.35f, 1.0f)
         ),
-        tonalElevation = 4.dp,
-        shadowElevation = if (settings.searchBarStyle == SearchBarStyle.FLAT) 0.dp else 4.dp,
+        tonalElevation = 6.dp,
+        shadowElevation = if (settings.searchBarStyle == SearchBarStyle.FLAT) 0.dp else 6.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 0.8.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.38f)
+        ),
         modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
@@ -308,19 +344,19 @@ fun PixelSearchBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 14.dp)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer)
             ) {
                 Text(
                     text = settings.searchEngine.displayName.first().toString(),
                     style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 )
@@ -330,7 +366,9 @@ fun PixelSearchBar(
 
             Text(
                 text = stringResource(R.string.search_apps_hint),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.Medium
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

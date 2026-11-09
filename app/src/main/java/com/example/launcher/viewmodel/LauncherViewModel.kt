@@ -45,6 +45,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
@@ -90,7 +92,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         homeDao = homeDatabase.homeDao()
     )
 
-    val iconCache = IconCache(appContext)
+    val iconCache = IconCache(
+        context = appContext,
+        activityInfoProvider = { key -> appLoaderRepository.getCachedActivityInfo(key) }
+    )
     val widgetHostController = WidgetHostController(appContext)
 
     private val _searchQuery = MutableStateFlow("")
@@ -102,10 +107,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val _isQuickSettingsSheetVisible = MutableStateFlow(false)
     private val _isWidgetPickerSheetVisible = MutableStateFlow(false)
     private val _backupStatusMessage = MutableStateFlow<String?>(null)
-
-    private val availableIconPacksList: List<IconPackInfo> by lazy {
-        iconCache.iconPackManager.getAvailableIconPacks()
-    }
+    private val _availableIconPacks = MutableStateFlow<List<IconPackInfo>>(emptyList())
 
     // Phase 2: App Open / Close Window Morph State + Lock Overlay + Search Focus
     private val _activeMorphState = MutableStateFlow<AppWindowMorphState?>(null)
@@ -182,13 +184,24 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         merged to sim.isNotEmpty()
     }
 
-    val uiState: StateFlow<LauncherUiState> = combine(
+    private data class CoreWorkspaceData(
+        val settings: LauncherSettings,
+        val homeItems: List<HomeItemEntity>,
+        val enrichedApps: List<AppInfo>,
+        val appsByKey: Map<String, AppInfo>,
+        val suggestedApps: List<AppInfo>,
+        val workspaceItemsByPage: Map<Int, List<HomeItemEntity>>,
+        val hotseatItems: List<HomeItemEntity>,
+        val simulatedBadgesActive: Boolean
+    )
+
+    private val coreWorkspaceFlow = combine(
         settingsRepository.settingsFlow,
         appLoaderRepository.installedApps,
         homeLayoutRepository.homeItemsFlow,
-        combine(homeLayoutRepository.appUsageFlow, notificationBadgesFlow) { u, b -> u to b },
-        overlayStateFlow
-    ) { settings, rawApps, homeItems, (usageList, badgePair), overlay ->
+        homeLayoutRepository.appUsageFlow,
+        notificationBadgesFlow
+    ) { settings, rawApps, homeItems, usageList, badgePair ->
         val (badgeMap, simActive) = badgePair
         val usageByKey = usageList.associateBy { it.componentKey }
 
@@ -203,16 +216,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val enrichedApps = rawApps.map { app ->
             val usage = usageByKey[app.componentKey]
             val badgeCount = if (app.isWorkProfile) 0 else (badgeMap[app.packageName] ?: 0)
-            app.copy(
-                launchCount = usage?.launchCount ?: 0,
-                lastLaunchTimestamp = usage?.lastLaunchTimestamp ?: 0L,
-                notificationCount = badgeCount
-            )
+            if (usage == null && badgeCount == app.notificationCount) {
+                app
+            } else {
+                app.copy(
+                    launchCount = usage?.launchCount ?: 0,
+                    lastLaunchTimestamp = usage?.lastLaunchTimestamp ?: 0L,
+                    notificationCount = badgeCount
+                )
+            }
         }
         val appsByKey = enrichedApps.associateBy { it.componentKey }
 
         if (enrichedApps.isNotEmpty() && homeItems.isEmpty()) {
-            viewModelScope.launch {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 homeLayoutRepository.ensureSeededWithApps(
                     apps = enrichedApps,
                     dockCount = settings.dockIconCount,
@@ -231,32 +248,54 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             .take(settings.suggestedAppsCount.coerceIn(4, 8))
 
         val workspaceItems = homeItems
+            .asSequence()
             .filter { it.container == HomeContainerType.WORKSPACE.name }
             .groupBy { it.page }
 
         val hotseat = homeItems
+            .asSequence()
             .filter { it.container == HomeContainerType.HOTSEAT.name }
             .sortedBy { it.cellX }
             .take(settings.dockIconCount)
+            .toList()
 
-        val activeFolder = overlay.activeFolderId?.let { id ->
-            homeItems.firstOrNull { it.id == id && it.itemType == HomeCellItemType.FOLDER.name }
-        }
-
-        val activeWidgetResize = overlay.activeWidgetResizeId?.let { id ->
-            homeItems.firstOrNull { it.id == id && it.itemType == HomeCellItemType.WIDGET.name }
-        }
-
-        val popupApp = overlay.activePopup?.app?.let { appsByKey[it.componentKey] ?: it }
-
-        LauncherUiState(
-            isLoading = enrichedApps.isEmpty(),
+        CoreWorkspaceData(
             settings = settings,
-            allApps = enrichedApps,
+            homeItems = homeItems,
+            enrichedApps = enrichedApps,
             appsByKey = appsByKey,
             suggestedApps = suggested,
             workspaceItemsByPage = workspaceItems,
             hotseatItems = hotseat,
+            simulatedBadgesActive = simActive
+        )
+    }
+        .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+
+    val uiState: StateFlow<LauncherUiState> = combine(
+        coreWorkspaceFlow,
+        overlayStateFlow,
+        _availableIconPacks
+    ) { core, overlay, iconPacks ->
+        val activeFolder = overlay.activeFolderId?.let { id ->
+            core.homeItems.firstOrNull { it.id == id && it.itemType == HomeCellItemType.FOLDER.name }
+        }
+
+        val activeWidgetResize = overlay.activeWidgetResizeId?.let { id ->
+            core.homeItems.firstOrNull { it.id == id && it.itemType == HomeCellItemType.WIDGET.name }
+        }
+
+        val popupApp = overlay.activePopup?.app?.let { core.appsByKey[it.componentKey] ?: it }
+
+        LauncherUiState(
+            isLoading = core.enrichedApps.isEmpty(),
+            settings = core.settings,
+            allApps = core.enrichedApps,
+            appsByKey = core.appsByKey,
+            suggestedApps = core.suggestedApps,
+            workspaceItemsByPage = core.workspaceItemsByPage,
+            hotseatItems = core.hotseatItems,
             isDefaultHomeApp = overlay.isDefaultHome,
             searchQuery = overlay.searchQuery,
             activeFolderItem = activeFolder,
@@ -267,8 +306,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             isWorkspaceMenuVisible = overlay.workspaceMenuVisible,
             isQuickSettingsSheetVisible = overlay.quickSettingsVisible,
             isWidgetPickerSheetVisible = overlay.widgetPickerVisible,
-            simulatedBadgesActive = simActive,
-            availableIconPacks = availableIconPacksList,
+            simulatedBadgesActive = core.simulatedBadgesActive,
+            availableIconPacks = iconPacks,
             backupStatusMessage = overlay.backupStatusMessage
         )
     }.stateIn(
@@ -279,6 +318,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     init {
         widgetHostController.startListening()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _availableIconPacks.value = iconCache.iconPackManager.getAvailableIconPacks()
+        }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            appLoaderRepository.installedApps.collect { apps ->
+                if (apps.isNotEmpty()) {
+                    iconCache.preloadIcons(apps)
+                }
+            }
+        }
     }
 
     fun refreshDefaultHomeStatus() {

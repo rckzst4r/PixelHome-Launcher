@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -40,11 +41,13 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
@@ -66,21 +69,66 @@ import com.example.launcher.model.BadgeStyle
 import com.example.launcher.model.FolderPreviewStyle
 import com.example.launcher.model.LabelColorMode
 import com.example.launcher.model.LauncherSettings
+import com.example.launcher.model.MiuiIconFallbackMode
 import com.example.ui.theme.parseHexColorSafe
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /**
+ * Plain non-observable holder for [LayoutCoordinates] so scrolling in `LazyVerticalGrid` or
+ * `HorizontalPager` never triggers Snapshot state writes or recompositions on `onGloballyPositioned`.
+ * Screen bounds are computed lazily only when the user actually taps, long-presses, or drags an icon.
+ */
+private class IconLayoutCoordsHolder(var coords: LayoutCoordinates? = null) {
+    fun resolveScreenRect(): Rect {
+        val c = coords
+        if (c == null || !c.isAttached) return Rect(200, 400, 360, 560)
+        return try {
+            val b = c.boundsInWindow()
+            if (!b.left.isFinite() || !b.top.isFinite() || !b.right.isFinite() || !b.bottom.isFinite()) {
+                Rect(200, 400, 360, 560)
+            } else {
+                Rect(
+                    b.left.roundToInt(),
+                    b.top.roundToInt(),
+                    b.right.roundToInt(),
+                    b.bottom.roundToInt()
+                )
+            }
+        } catch (_: Throwable) {
+            Rect(200, 400, 360, 560)
+        }
+    }
+}
+
+/**
+ * Builds a GPU-accelerated Duotone [ColorFilter] that maps dark luminance pixels of any multi-color
+ * or Xiaomi/MIUI icon to [plateColor] and bright luminance pixels (the logo/glyph) to [glyphColor].
+ * This preserves all internal contrast, lines, and details of MIUI/non-monochrome icons instead of
+ * flattening them into a solid square.
+ */
+internal fun createDuotoneColorFilter(plateColor: Color, glyphColor: Color): ColorFilter {
+    val dr = (glyphColor.red - plateColor.red)
+    val dg = (glyphColor.green - plateColor.green)
+    val db = (glyphColor.blue - plateColor.blue)
+
+    val lr = 0.299f
+    val lg = 0.587f
+    val lb = 0.114f
+
+    val matrix = ColorMatrix(
+        floatArrayOf(
+            dr * lr, dr * lg, dr * lb, 0f, plateColor.red * 255f,
+            dg * lr, dg * lg, dg * lb, 0f, plateColor.green * 255f,
+            db * lr, db * lg, db * lb, 0f, plateColor.blue * 255f,
+            0f, 0f, 0f, 1f, 0f
+        )
+    )
+    return ColorFilter.colorMatrix(matrix)
+}
+
+/**
  * Renders an application icon inside the mathematical [SquircleShape] engine.
- *
- * Supports:
- * - GPU-clipped superellipse / preset shape (`graphicsLayer { clip = true; shape = squircleShape }`)
- * - Spring press feedback (`scale = 0.92f`)
- * - External ADW/Nova/Apex Icon Packs & Built-in Studio Icon Packs (`Cyber Neon`, `Pastel`, `Obsidian`)
- * - Global App Color Modes (`ORIGINAL`, `CUSTOM_PALETTE`, `ACCENT_HARMONIZED`, `MATERIAL_YOU`)
- * - Per-app custom label, custom background plate color, and custom glyph tint overrides (`settings.customAppOverrides`)
- * - Universal Android 7.0+ (API 24+) legacy icon normalization
- * - Squircle notification badges (`DOT`, `COUNT`, `OFF`)
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -91,6 +139,7 @@ fun SquircleAppIcon(
     showLabel: Boolean,
     useThemedIcon: Boolean,
     baseIconSize: Dp = 56.dp,
+    enableLabelShadow: Boolean = true,
     isBeingDragged: Boolean = false,
     isFolderMergeHighlighted: Boolean = false,
     onClick: (AppInfo, Rect) -> Unit,
@@ -100,33 +149,44 @@ fun SquircleAppIcon(
     onDragFinish: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val isPressed: Boolean
+    val pressScale: Float
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
 
-    val pressScale by animateFloatAsState(
-        targetValue = when {
-            isFolderMergeHighlighted -> 1.14f
-            isPressed -> 0.92f
+    if (enableLabelShadow || isFolderMergeHighlighted) {
+        val pressedState by interactionSource.collectIsPressedAsState()
+        isPressed = pressedState
+        val targetScale = when {
+            isFolderMergeHighlighted -> 1.16f
+            pressedState -> 0.90f
             else -> 1.0f
-        },
-        animationSpec = spring(
-            dampingRatio = settings.springDampingRatio.coerceIn(0.45f, 1.0f),
-            stiffness = settings.springStiffness.coerceIn(120f, 1500f)
-        ),
-        label = "IconPressSpring"
-    )
+        }
+        val animatedScale by animateFloatAsState(
+            targetValue = targetScale,
+            animationSpec = spring(
+                dampingRatio = (settings.springDampingRatio * 0.72f).coerceIn(0.50f, 0.88f),
+                stiffness = (settings.springStiffness * 1.45f).coerceIn(320f, 1600f)
+            ),
+            label = "IconPressSpring"
+        )
+        pressScale = animatedScale
+    } else {
+        // Fast path for App Drawer scrolling: zero coroutine allocations per grid item
+        isPressed = false
+        pressScale = 1.0f
+    }
 
     var iconLayers by remember(app.componentKey, settings.iconPackPackage) {
         mutableStateOf(iconCache.getCachedIfPresent(app.componentKey, settings.iconPackPackage))
     }
 
-    LaunchedEffect(app.componentKey, settings.iconPackPackage) {
-        if (iconLayers == null) {
+    if (iconLayers == null) {
+        LaunchedEffect(app.componentKey, settings.iconPackPackage) {
             iconLayers = iconCache.getOrLoadIcon(app, settings.iconPackPackage)
         }
     }
 
-    var iconScreenRect by remember { mutableStateOf(Rect(0, 0, 200, 200)) }
+    val coordsHolder = remember { IconLayoutCoordsHolder() }
 
     val squircleShape = remember(settings.squircleExponent, settings.iconShape) {
         SquircleShape(
@@ -139,11 +199,15 @@ fun SquircleAppIcon(
     val customOverride = settings.customAppOverrides[app.componentKey]
     val displayLabel = customOverride?.customLabel?.takeIf { it.isNotBlank() } ?: app.label
 
-    val labelColor = when (settings.labelColorMode) {
-        LabelColorMode.WALLPAPER_ADAPTIVE,
-        LabelColorMode.LIGHT -> Color(0xFFF8F9FA)
-        LabelColorMode.DARK -> Color(0xFF1A1C1E)
-        LabelColorMode.DYNAMIC_ACCENT -> MaterialTheme.colorScheme.primary
+    val labelColor = if (!enableLabelShadow) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        when (settings.labelColorMode) {
+            LabelColorMode.WALLPAPER_ADAPTIVE,
+            LabelColorMode.LIGHT -> Color(0xFFF8F9FA)
+            LabelColorMode.DARK -> Color(0xFF1A1C1E)
+            LabelColorMode.DYNAMIC_ACCENT -> MaterialTheme.colorScheme.primary
+        }
     }
 
     Column(
@@ -151,17 +215,21 @@ fun SquircleAppIcon(
         verticalArrangement = Arrangement.Center,
         modifier = modifier
             .widthIn(min = 48.dp)
-            .graphicsLayer {
-                alpha = if (isBeingDragged) 0.22f else 1.0f
-            }
+            .then(
+                if (isBeingDragged) {
+                    Modifier.graphicsLayer { alpha = 0.22f }
+                } else {
+                    Modifier
+                }
+            )
             .semantics { contentDescription = displayLabel }
             .testTag("app_icon_${app.packageName}")
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(app, iconScreenRect) },
+                onClick = { onClick(app, coordsHolder.resolveScreenRect()) },
                 onLongClick = {
-                    onLongClick?.invoke(app, iconScreenRect)
+                    onLongClick?.invoke(app, coordsHolder.resolveScreenRect())
                 }
             )
             .then(
@@ -170,16 +238,18 @@ fun SquircleAppIcon(
                         var dragEngaged = false
                         var accumulatedDrag = Offset.Zero
                         var currentWindowPos = Offset.Zero
+                        var startRect = Rect(200, 400, 360, 560)
 
                         detectDragGesturesAfterLongPress(
                             onDragStart = { localOffset ->
                                 dragEngaged = false
                                 accumulatedDrag = Offset.Zero
+                                startRect = coordsHolder.resolveScreenRect()
                                 currentWindowPos = Offset(
-                                    iconScreenRect.left + localOffset.x,
-                                    iconScreenRect.top + localOffset.y
+                                    startRect.left + localOffset.x,
+                                    startRect.top + localOffset.y
                                 )
-                                onLongClick?.invoke(app, iconScreenRect)
+                                onLongClick?.invoke(app, startRect)
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
@@ -187,7 +257,7 @@ fun SquircleAppIcon(
                                 currentWindowPos += dragAmount
                                 if (!dragEngaged && hypot(accumulatedDrag.x, accumulatedDrag.y) > 14.dp.toPx()) {
                                     dragEngaged = true
-                                    onDragStartFromIcon(app, iconScreenRect, currentWindowPos)
+                                    onDragStartFromIcon(app, startRect, currentWindowPos)
                                 }
                                 if (dragEngaged) {
                                     onDragMoveWindowOffset(currentWindowPos)
@@ -218,17 +288,7 @@ fun SquircleAppIcon(
             modifier = Modifier
                 .size(effectiveIconSize)
                 .onGloballyPositioned { coords ->
-                    val bounds = coords.boundsInWindow()
-                    iconScreenRect = Rect(
-                        bounds.left.roundToInt(),
-                        bounds.top.roundToInt(),
-                        bounds.right.roundToInt(),
-                        bounds.bottom.roundToInt()
-                    )
-                }
-                .graphicsLayer {
-                    scaleX = pressScale
-                    scaleY = pressScale
+                    coordsHolder.coords = coords
                 }
         ) {
             if (isFolderMergeHighlighted) {
@@ -262,9 +322,22 @@ fun SquircleAppIcon(
                         }
                     )
                     .graphicsLayer {
+                        scaleX = pressScale
+                        scaleY = pressScale
                         clip = true
                         shape = squircleShape
                     }
+                    .then(
+                        if (isPressed) {
+                            Modifier.border(
+                                width = 1.5.dp,
+                                color = Color.White.copy(alpha = 0.45f),
+                                shape = squircleShape
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 IconLayerContent(
                     layers = iconLayers,
@@ -288,7 +361,6 @@ fun SquircleAppIcon(
                         .align(Alignment.TopEnd)
                         .offset(x = 2.dp, y = (-2).dp)
                         .size(if (isCount) 20.dp else 13.dp)
-                        .shadow(2.dp, badgeShape)
                         .graphicsLayer {
                             clip = true
                             shape = badgeShape
@@ -339,8 +411,10 @@ fun SquircleAppIcon(
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontSize = settings.labelFontSizeSp.sp,
                     color = labelColor,
-                    shadow = if (settings.labelColorMode == LabelColorMode.WALLPAPER_ADAPTIVE ||
-                        settings.labelColorMode == LabelColorMode.LIGHT
+                    shadow = if (enableLabelShadow && (
+                            settings.labelColorMode == LabelColorMode.WALLPAPER_ADAPTIVE ||
+                                settings.labelColorMode == LabelColorMode.LIGHT
+                            )
                     ) {
                         Shadow(
                             color = Color.Black.copy(alpha = 0.65f),
@@ -355,6 +429,72 @@ fun SquircleAppIcon(
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+@Composable
+private fun StyledAppIconBox(
+    layers: CachedAppIconLayers,
+    plateColor: Color,
+    glyphColor: Color,
+    fallbackMode: MiuiIconFallbackMode
+) {
+    val hasRealMono = layers.hasRealMonochrome && layers.monochromeBitmap != null
+    val duotoneFilter = remember(plateColor, glyphColor) {
+        createDuotoneColorFilter(plateColor, glyphColor)
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxSize()
+            .background(plateColor)
+    ) {
+        if (hasRealMono) {
+            Image(
+                bitmap = layers.monochromeBitmap!!,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                colorFilter = ColorFilter.tint(glyphColor),
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            when (fallbackMode) {
+                MiuiIconFallbackMode.DUOTONE_TINT -> {
+                    Image(
+                        bitmap = layers.compositeBitmap,
+                        contentDescription = null,
+                        contentScale = if (layers.isAdaptive || layers.isFullBleedLegacy) {
+                            ContentScale.Crop
+                        } else {
+                            ContentScale.Fit
+                        },
+                        colorFilter = duotoneFilter,
+                        modifier = Modifier.fillMaxSize(
+                            if (layers.isAdaptive || layers.isFullBleedLegacy) 1f else 0.78f
+                        )
+                    )
+                }
+
+                MiuiIconFallbackMode.SAFE_PLATE -> {
+                    Image(
+                        bitmap = layers.foregroundBitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(0.76f)
+                    )
+                }
+
+                MiuiIconFallbackMode.FULL_BLEED_ORIGINAL -> {
+                    Image(
+                        bitmap = layers.compositeBitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
         }
     }
 }
@@ -380,8 +520,6 @@ internal fun IconLayerContent(
     val iconPackPackage = settings.iconPackPackage
     val legacyPlateHex = settings.legacyIconPlateHex
 
-    val hasRealMono = layers.hasRealMonochrome && layers.monochromeBitmap != null
-
     // 1. Per-app custom color override (Background Plate and/or Foreground Glyph Tint)
     if (!customColorHex.isNullOrBlank() || !customGlyphHex.isNullOrBlank()) {
         val customBg = if (!customColorHex.isNullOrBlank()) {
@@ -389,36 +527,17 @@ internal fun IconLayerContent(
         } else {
             Color(layers.dominantSeedColor)
         }
-        val glyphFilter = if (!customGlyphHex.isNullOrBlank() && hasRealMono) {
-            ColorFilter.tint(parseHexColorSafe(customGlyphHex, Color.White))
-        } else if (!customColorHex.isNullOrBlank() && hasRealMono) {
-            ColorFilter.tint(Color.White)
+        val customGlyph = if (!customGlyphHex.isNullOrBlank()) {
+            parseHexColorSafe(customGlyphHex, Color.White)
         } else {
-            null
+            Color.White
         }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .background(customBg)
-        ) {
-            if (hasRealMono && glyphFilter != null) {
-                Image(
-                    bitmap = layers.monochromeBitmap!!,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    colorFilter = glyphFilter,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Image(
-                    bitmap = layers.foregroundBitmap,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                )
-            }
-        }
+        StyledAppIconBox(
+            layers = layers,
+            plateColor = customBg,
+            glyphColor = customGlyph,
+            fallbackMode = settings.miuiIconFallbackMode
+        )
         return
     }
 
@@ -427,30 +546,12 @@ internal fun IconLayerContent(
         AppColorPaletteMode.CUSTOM_PALETTE -> {
             val globalPlate = parseHexColorSafe(settings.globalAppPlateColorHex, Color(0xFF1B2234))
             val globalGlyph = parseHexColorSafe(settings.globalAppGlyphColorHex, Color(0xFF7AB8FF))
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(globalPlate)
-            ) {
-                if (hasRealMono) {
-                    Image(
-                        bitmap = layers.monochromeBitmap!!,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(globalGlyph),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    // Xiaomi/MIUI and legacy icons: preserve authentic app branding inside the themed plate
-                    Image(
-                        bitmap = layers.foregroundBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                    )
-                }
-            }
+            StyledAppIconBox(
+                layers = layers,
+                plateColor = globalPlate,
+                glyphColor = globalGlyph,
+                fallbackMode = settings.miuiIconFallbackMode
+            )
             return
         }
 
@@ -459,58 +560,24 @@ internal fun IconLayerContent(
             val appSeed = Color(layers.dominantSeedColor)
             val blendFactor = settings.appColorHarmonyIntensity.coerceIn(0.15f, 0.95f)
             val harmonizedPlate = lerp(appSeed, targetAccent, blendFactor)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(harmonizedPlate)
-            ) {
-                if (hasRealMono) {
-                    Image(
-                        bitmap = layers.monochromeBitmap!!,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(Color.White),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Image(
-                        bitmap = layers.foregroundBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                    )
-                }
-            }
+            StyledAppIconBox(
+                layers = layers,
+                plateColor = harmonizedPlate,
+                glyphColor = Color.White,
+                fallbackMode = settings.miuiIconFallbackMode
+            )
             return
         }
 
         AppColorPaletteMode.MATERIAL_YOU -> {
             val plateColor = MaterialTheme.colorScheme.secondaryContainer
             val tintColor = MaterialTheme.colorScheme.onSecondaryContainer
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(plateColor)
-            ) {
-                if (hasRealMono) {
-                    Image(
-                        bitmap = layers.monochromeBitmap!!,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(tintColor),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Image(
-                        bitmap = layers.foregroundBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                    )
-                }
-            }
+            StyledAppIconBox(
+                layers = layers,
+                plateColor = plateColor,
+                glyphColor = tintColor,
+                fallbackMode = settings.miuiIconFallbackMode
+            )
             return
         }
 
@@ -521,29 +588,12 @@ internal fun IconLayerContent(
     when (iconPackPackage) {
         IconPackManager.BUILTIN_NEON_PACK -> {
             val neonAccent = Color(app.accentTintSeed)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF0E1118))
-            ) {
-                if (hasRealMono) {
-                    Image(
-                        bitmap = layers.monochromeBitmap!!,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(neonAccent),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Image(
-                        bitmap = layers.foregroundBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                    )
-                }
-            }
+            StyledAppIconBox(
+                layers = layers,
+                plateColor = Color(0xFF0E1118),
+                glyphColor = neonAccent,
+                fallbackMode = settings.miuiIconFallbackMode
+            )
             return
         }
         IconPackManager.BUILTIN_PASTEL_PACK -> {
@@ -553,55 +603,21 @@ internal fun IconLayerContent(
                 green = (seed.green * 0.35f + 0.65f).coerceIn(0f, 1f),
                 blue = (seed.blue * 0.35f + 0.65f).coerceIn(0f, 1f)
             )
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(pastelPlate)
-            ) {
-                if (hasRealMono) {
-                    Image(
-                        bitmap = layers.monochromeBitmap!!,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(Color(0xFF181C24)),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Image(
-                        bitmap = layers.foregroundBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                    )
-                }
-            }
+            StyledAppIconBox(
+                layers = layers,
+                plateColor = pastelPlate,
+                glyphColor = Color(0xFF181C24),
+                fallbackMode = settings.miuiIconFallbackMode
+            )
             return
         }
         IconPackManager.BUILTIN_OBSIDIAN_PACK -> {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF1A1D24))
-            ) {
-                if (hasRealMono) {
-                    Image(
-                        bitmap = layers.monochromeBitmap!!,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(Color(0xFFF1F4F9)),
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Image(
-                        bitmap = layers.foregroundBitmap,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                    )
-                }
-            }
+            StyledAppIconBox(
+                layers = layers,
+                plateColor = Color(0xFF1A1D24),
+                glyphColor = Color(0xFFF1F4F9),
+                fallbackMode = settings.miuiIconFallbackMode
+            )
             return
         }
     }
@@ -610,51 +626,20 @@ internal fun IconLayerContent(
     if (useThemedIcon) {
         val plateColor = MaterialTheme.colorScheme.secondaryContainer
         val tintColor = MaterialTheme.colorScheme.onSecondaryContainer
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .background(plateColor)
-        ) {
-            if (hasRealMono) {
-                Image(
-                    bitmap = layers.monochromeBitmap!!,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    colorFilter = ColorFilter.tint(tintColor),
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Image(
-                    bitmap = layers.foregroundBitmap,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(if (layers.isAdaptive) 1f else 0.74f)
-                )
-            }
-        }
-    } else if (layers.isAdaptive) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(layers.dominantSeedColor))
-        ) {
-            layers.backgroundBitmap?.let { bg ->
-                Image(
-                    bitmap = bg,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            Image(
-                bitmap = layers.foregroundBitmap,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        StyledAppIconBox(
+            layers = layers,
+            plateColor = plateColor,
+            glyphColor = tintColor,
+            fallbackMode = settings.miuiIconFallbackMode
+        )
+    } else if (layers.isAdaptive || layers.isFullBleedLegacy) {
+        // Single pre-composited Image draw node for adaptive and full-bleed icons
+        Image(
+            bitmap = layers.compositeBitmap,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
     } else {
         // Universal Android 7.0+ & Multi-OEM Legacy Icon Normalization
         val plateColor = if (settings.universalLegacyIconNormalize) {
@@ -695,12 +680,12 @@ fun SquircleFolderTile(
     val scale by animateFloatAsState(
         targetValue = when {
             isFolderMergeHighlighted -> 1.15f
-            isPressed -> 0.92f
+            isPressed -> 0.89f
             else -> 1.0f
         },
         animationSpec = spring(
-            dampingRatio = settings.springDampingRatio,
-            stiffness = Spring.StiffnessMediumLow
+            dampingRatio = (settings.springDampingRatio * 0.68f).coerceIn(0.45f, 0.85f),
+            stiffness = Spring.StiffnessMedium
         ),
         label = "FolderPressSpring"
     )
@@ -887,8 +872,8 @@ private fun MiniFolderPreviewIcon(
     var layers by remember(app.componentKey, settings.iconPackPackage) {
         mutableStateOf(iconCache.getCachedIfPresent(app.componentKey, settings.iconPackPackage))
     }
-    LaunchedEffect(app.componentKey, settings.iconPackPackage) {
-        if (layers == null) {
+    if (layers == null) {
+        LaunchedEffect(app.componentKey, settings.iconPackPackage) {
             layers = iconCache.getOrLoadIcon(app, settings.iconPackPackage)
         }
     }
