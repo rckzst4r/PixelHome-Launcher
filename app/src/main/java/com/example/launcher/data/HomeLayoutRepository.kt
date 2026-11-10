@@ -336,6 +336,53 @@ class HomeLayoutRepository(
         }
     }
 
+    /**
+     * Removes all workspace/hotseat shortcuts and folder entries belonging to an uninstalled package
+     * or componentKey so no ghost slots remain on the Home Screen or Dock.
+     */
+    suspend fun removePackageFromHomeAndFolders(packageName: String, componentKey: String? = null) {
+        withContext(ioDispatcher) {
+            val allItems = homeDao.getAllHomeItemsOnce()
+            val pkgPrefix = "$packageName/"
+            for (item in allItems) {
+                when (item.itemType) {
+                    HomeCellItemType.APP.name -> {
+                        val matchesKey = componentKey != null && item.componentKey == componentKey
+                        val matchesPkg = item.componentKey.startsWith(pkgPrefix) || item.componentKey == packageName
+                        if (matchesKey || matchesPkg) {
+                            homeDao.deleteHomeItemById(item.id)
+                        }
+                    }
+                    HomeCellItemType.FOLDER.name -> {
+                        val currentMembers = item.folderMemberKeys
+                        val filtered = currentMembers.filterNot { memberKey ->
+                            (componentKey != null && memberKey == componentKey) ||
+                                memberKey.startsWith(pkgPrefix) ||
+                                memberKey == packageName
+                        }
+                        if (filtered.size != currentMembers.size) {
+                            if (filtered.isEmpty()) {
+                                homeDao.deleteHomeItemById(item.id)
+                            } else if (filtered.size == 1) {
+                                homeDao.updateHomeItem(
+                                    item.copy(
+                                        itemType = HomeCellItemType.APP.name,
+                                        componentKey = filtered.first(),
+                                        folderMemberKeysCsv = ""
+                                    )
+                                )
+                            } else {
+                                homeDao.updateHomeItem(
+                                    item.copy(folderMemberKeysCsv = filtered.joinToString(","))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun resetHomeLayout(apps: List<AppInfo>, dockCount: Int, columns: Int) {
         withContext(ioDispatcher) {
             homeDao.clearAllHomeItems()

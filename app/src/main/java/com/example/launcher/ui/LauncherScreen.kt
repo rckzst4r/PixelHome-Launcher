@@ -130,6 +130,7 @@ import com.example.launcher.ui.components.QuickStyleAndSettingsSheet
 import com.example.launcher.ui.components.SimulatedScreenLockOverlay
 import com.example.launcher.ui.components.SquircleAppIcon
 import com.example.launcher.ui.components.SquircleFolderTile
+import com.example.launcher.ui.components.UninstallAppConfirmationDialog
 import com.example.launcher.ui.components.WidgetAndBadgePickerSheet
 import com.example.launcher.ui.components.WidgetResizeAndRemoveDialog
 import com.example.launcher.ui.components.WorkspaceLongPressMenuPopup
@@ -234,6 +235,8 @@ fun LauncherScreen(
     onRemoveHomeItem: (Long) -> Unit,
     onAppInfoClick: (AppInfo) -> Unit,
     onUninstallAppClick: (AppInfo) -> Unit,
+    onConfirmUninstallApp: (AppInfo) -> Unit = {},
+    onDismissUninstallDialog: () -> Unit = {},
     onTriggerSearchGestureFocus: () -> Unit
 ) {
     val settings = uiState.settings
@@ -1001,6 +1004,19 @@ fun LauncherScreen(
                 { onRemoveHomeItem(itemId) }
             },
             onUninstallClick = onUninstallAppClick
+        )
+
+        // 6B. App Uninstall Confirmation Dialog (for system apps or launcher-managed uninstalls)
+        UninstallAppConfirmationDialog(
+            app = uiState.pendingUninstallApp,
+            iconCache = iconCache,
+            settings = settings,
+            onConfirmUninstall = { appToRemove ->
+                LauncherHaptics.performGestureConfirm(rootView, settings)
+                onConfirmUninstallApp(appToRemove)
+            },
+            onOpenAppInfo = onAppInfoClick,
+            onDismiss = onDismissUninstallDialog
         )
 
         // 7. Widget & Notification Badge Picker Bottom Sheet

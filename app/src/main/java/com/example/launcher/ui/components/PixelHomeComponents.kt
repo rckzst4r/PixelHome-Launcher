@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -796,7 +797,7 @@ fun AppShortcutPopupDialog(
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val popupWidthDp = (configuration.screenWidthDp - 32).coerceIn(224, 276).dp
+    val popupWidthDp = (configuration.screenWidthDp - 28).coerceIn(256, 304).dp
     val popupWidthPx = with(density) { popupWidthDp.toPx() }
     val estimatedPopupHeightPx = with(density) { 330.dp.toPx() }
 
@@ -968,66 +969,92 @@ fun AppShortcutPopupDialog(
                         onClick = {
                             onDismiss()
                             onRemoveFromHomeClick()
-                        }
+                        },
+                        modifier = Modifier.testTag("popup_quick_remove_button")
                     )
                 }
 
                 Row(
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    if (onRemoveFromHomeClick != null) {
-                        TextButton(
-                            onClick = {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable {
                                 onDismiss()
-                                onRemoveFromHomeClick()
-                            },
-                            modifier = Modifier.testTag("popup_quick_remove_button")
+                                onAppInfoClick(app)
+                            }
+                            .testTag("popup_app_info_button")
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Remove",
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = "App info",
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Remove")
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "App info",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
 
-                    TextButton(
-                        onClick = {
-                            onDismiss()
-                            onAppInfoClick(app)
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.88f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 44.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable {
+                                onDismiss()
+                                onUninstallClick(app)
+                            }
+                            .testTag("popup_uninstall_button")
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = "App info",
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("App info")
-                    }
-
-                    TextButton(
-                        onClick = {
-                            onDismiss()
-                            onUninstallClick(app)
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.DeleteOutline,
+                                contentDescription = "Uninstall",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Uninstall",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.DeleteOutline,
-                            contentDescription = "Uninstall",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Uninstall",
-                            color = MaterialTheme.colorScheme.error
-                        )
                     }
                 }
             }
@@ -1039,12 +1066,13 @@ fun AppShortcutPopupDialog(
 private fun PopupMenuItemRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 10.dp)
@@ -1131,6 +1159,128 @@ fun WidgetResizeAndRemoveDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(onClick = onDismiss) {
                         Text("Done")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Confirmation dialog shown when uninstalling an app that cannot be removed directly by the
+ * Android OS `/system` uninstaller (such as pre-installed emulator/system apps), allowing the
+ * user to uninstall/remove it from the Home Screen, Dock, Folders, and App Drawer or open System App Info.
+ */
+@Composable
+fun UninstallAppConfirmationDialog(
+    app: AppInfo?,
+    iconCache: com.example.launcher.icon.IconCache,
+    settings: com.example.launcher.model.LauncherSettings,
+    onConfirmUninstall: (AppInfo) -> Unit,
+    onOpenAppInfo: (AppInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    if (app == null) return
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 8.dp,
+            shadowElevation = 18.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("uninstall_app_confirm_dialog")
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.padding(22.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SquircleAppIcon(
+                        app = app,
+                        iconCache = iconCache,
+                        settings = settings,
+                        showLabel = false,
+                        useThemedIcon = settings.themedIconsEnabled,
+                        baseIconSize = 48.dp,
+                        onClick = { _, _ -> }
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Uninstall ${app.label}?",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = app.packageName,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (app.isSystemApp && !app.isUpdatedSystemApp) {
+                        "Do you want to uninstall ${app.label} from PixelHome? This removes it from your Home screen, Dock, Folders, and App Drawer (you can restore it anytime in Home Settings → Hidden Apps, or manage it in Android System Settings)."
+                    } else {
+                        "Do you want to uninstall ${app.label} and remove it from your Home screen and App Drawer?"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TextButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenAppInfo(app)
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("System App Info")
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text("Cancel")
+                        }
+                        Button(
+                            onClick = { onConfirmUninstall(app) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            ),
+                            modifier = Modifier.testTag("confirm_uninstall_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.DeleteOutline,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Uninstall")
+                        }
                     }
                 }
             }

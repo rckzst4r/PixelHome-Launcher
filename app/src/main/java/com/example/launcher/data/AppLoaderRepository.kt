@@ -1,9 +1,11 @@
 package com.example.launcher.data
 
 import android.app.ActivityOptions
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
@@ -39,7 +41,8 @@ import kotlinx.coroutines.withContext
 class AppLoaderRepository(
     private val context: Context,
     private val externalScope: CoroutineScope,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onPackageRemovedListener: ((String) -> Unit)? = null
 ) {
     private val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
     private val userManager = context.getSystemService(Context.USER_SERVICE) as? UserManager
@@ -61,6 +64,9 @@ class AppLoaderRepository(
 
     private val launcherCallback = object : LauncherApps.Callback() {
         override fun onPackageRemoved(packageName: String?, user: UserHandle?) {
+            if (!packageName.isNullOrBlank()) {
+                onPackageRemovedListener?.invoke(packageName)
+            }
             refreshInstalledApps()
         }
 
@@ -89,9 +95,38 @@ class AppLoaderRepository(
         }
     }
 
+    private val packageBroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = intent?.action ?: return
+            val pkg = intent.data?.schemeSpecificPart
+            val isReplacing = intent.getBooleanExtra(Intent.EXTRA_REPLACING, false)
+            if ((action == Intent.ACTION_PACKAGE_REMOVED || action == Intent.ACTION_PACKAGE_FULLY_REMOVED) &&
+                !isReplacing && !pkg.isNullOrBlank()
+            ) {
+                onPackageRemovedListener?.invoke(pkg)
+            }
+            refreshInstalledApps()
+        }
+    }
+
     init {
         runCatching {
             launcherApps?.registerCallback(launcherCallback, Handler(Looper.getMainLooper()))
+        }
+        runCatching {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_FULLY_REMOVED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addAction(Intent.ACTION_PACKAGE_CHANGED)
+                addDataScheme("package")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(packageBroadcastReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(packageBroadcastReceiver, filter)
+            }
         }
         refreshInstalledApps()
     }
@@ -99,6 +134,9 @@ class AppLoaderRepository(
     fun unregister() {
         runCatching {
             launcherApps?.unregisterCallback(launcherCallback)
+        }
+        runCatching {
+            context.unregisterReceiver(packageBroadcastReceiver)
         }
     }
 
@@ -150,6 +188,9 @@ class AppLoaderRepository(
                 val pkg = info.componentName.packageName
                 if (pkg == myPackage) continue // Don't list PixelHome inside its own drawer
                 val label = info.label?.toString()?.trim().takeUnless { it.isNullOrEmpty() } ?: pkg
+                val appFlags = info.applicationInfo?.flags ?: 0
+                val isSys = (appFlags and ApplicationInfo.FLAG_SYSTEM) != 0
+                val isUpdatedSys = (appFlags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
                 val category = mapAndroidCategory(info.applicationInfo, pkg, label)
                 val seedColor = pixelPaletteSeeds[(pkg.hashCode() and Int.MAX_VALUE) % pixelPaletteSeeds.size]
                 val shortcuts = buildDefaultShortcuts(pkg)
@@ -165,7 +206,9 @@ class AppLoaderRepository(
                     category = category,
                     shortcuts = shortcuts,
                     accentTintSeed = seedColor,
-                    isSynthesizedSample = false
+                    isSynthesizedSample = false,
+                    isSystemApp = isSys,
+                    isUpdatedSystemApp = isUpdatedSys
                 )
                 activityInfoCache[appInfo.componentKey] = info
                 result.add(appInfo)
@@ -346,13 +389,30 @@ class AppLoaderRepository(
         }
     }
 
-    fun requestUninstallApp(app: AppInfo) {
-        runCatching {
-            val intent = Intent(Intent.ACTION_DELETE).apply {
-                data = Uri.fromParts("package", app.packageName, null)
+    fun requestUninstallApp(app: AppInfo): Boolean {
+        if (!app.canSystemUninstall) {
+            return false
+        }
+        val pkgUri = Uri.fromParts("package", app.packageName, null)
+        val launchedDelete = runCatching {
+            val intent = Intent(Intent.ACTION_DELETE, pkgUri).apply {
+                putExtra(Intent.EXTRA_USER, app.userHandle)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
-        }
+            true
+        }.getOrDefault(false)
+
+        if (launchedDelete) return true
+
+        return runCatching {
+            @Suppress("DEPRECATION")
+            val fallbackIntent = Intent(Intent.ACTION_UNINSTALL_PACKAGE, pkgUri).apply {
+                putExtra(Intent.EXTRA_USER, app.userHandle)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(fallbackIntent)
+            true
+        }.getOrDefault(false)
     }
 }

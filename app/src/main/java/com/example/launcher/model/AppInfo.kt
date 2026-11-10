@@ -41,12 +41,17 @@ data class AppInfo(
     val notificationCount: Int = 0,
     val shortcuts: List<AppShortcutItem> = emptyList(),
     val accentTintSeed: Int = 0xFF4285F4.toInt(),
-    val isSynthesizedSample: Boolean = false
+    val isSynthesizedSample: Boolean = false,
+    val isSystemApp: Boolean = false,
+    val isUpdatedSystemApp: Boolean = false
 ) {
     val componentKey: String = "$packageName/$activityName#$userSerial"
 
     val componentName: ComponentName
         get() = ComponentName(packageName, activityName)
+
+    val canSystemUninstall: Boolean
+        get() = !isSynthesizedSample && (!isSystemApp || isUpdatedSystemApp)
 
     val initialLetter: String = run {
         val first = label.trim().firstOrNull()?.uppercaseChar() ?: '#'

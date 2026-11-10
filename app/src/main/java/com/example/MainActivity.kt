@@ -289,6 +289,8 @@ class MainActivity : ComponentActivity() {
                     onRemoveHomeItem = { id -> viewModel.removeHomeItem(id) },
                     onAppInfoClick = { app -> viewModel.openAppDetails(app) },
                     onUninstallAppClick = { app -> viewModel.uninstallApp(app) },
+                    onConfirmUninstallApp = { app -> viewModel.confirmLauncherUninstall(app) },
+                    onDismissUninstallDialog = { viewModel.dismissUninstallDialog() },
                     onTriggerSearchGestureFocus = { viewModel.triggerDrawerSearchFocus() }
                 )
                 }

@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.launcher.animation.LauncherPhysics
@@ -217,11 +218,11 @@ fun TopDragDropTargetBar(
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp, horizontal = 8.dp)
+                    .padding(vertical = 8.dp, horizontal = 10.dp)
             ) {
                 if (showRemoveTarget) {
                     DropTargetPill(
@@ -230,7 +231,8 @@ fun TopDragDropTargetBar(
                         isHovered = hoveredTarget == TopDropTarget.REMOVE,
                         activeColor = MaterialTheme.colorScheme.secondaryContainer,
                         onActiveColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        settings = settings
+                        settings = settings,
+                        modifier = Modifier.weight(1f)
                     )
                 }
 
@@ -240,7 +242,8 @@ fun TopDragDropTargetBar(
                     isHovered = hoveredTarget == TopDropTarget.APP_INFO,
                     activeColor = MaterialTheme.colorScheme.primaryContainer,
                     onActiveColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    settings = settings
+                    settings = settings,
+                    modifier = Modifier.weight(1f)
                 )
 
                 DropTargetPill(
@@ -249,7 +252,8 @@ fun TopDragDropTargetBar(
                     isHovered = hoveredTarget == TopDropTarget.UNINSTALL,
                     activeColor = MaterialTheme.colorScheme.errorContainer,
                     onActiveColor = MaterialTheme.colorScheme.onErrorContainer,
-                    settings = settings
+                    settings = settings,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -263,27 +267,35 @@ private fun DropTargetPill(
     isHovered: Boolean,
     activeColor: Color,
     onActiveColor: Color,
-    settings: LauncherSettings
+    settings: LauncherSettings,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scale by animateFloatAsState(
-        targetValue = if (isHovered) 1.12f else 1.0f,
+        targetValue = if (isHovered) 1.06f else 1.0f,
         animationSpec = LauncherPhysics.springSpec(settings, context),
         label = "DropTargetHoverScale"
     )
 
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = if (isHovered) activeColor else Color.Transparent,
-        modifier = Modifier
+        color = if (isHovered) {
+            activeColor
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f)
+        },
+        modifier = modifier
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
     ) {
         Row(
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 10.dp)
         ) {
             Icon(
                 imageVector = icon,
@@ -295,9 +307,12 @@ private fun DropTargetPill(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = if (isHovered) FontWeight.Bold else FontWeight.Medium
+                    fontWeight = if (isHovered) FontWeight.Bold else FontWeight.SemiBold
                 ),
-                color = if (isHovered) onActiveColor else MaterialTheme.colorScheme.onSurface
+                color = if (isHovered) onActiveColor else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

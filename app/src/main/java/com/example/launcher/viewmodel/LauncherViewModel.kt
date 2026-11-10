@@ -12,6 +12,7 @@ import android.os.Build
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.view.View
+import android.widget.Toast
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.AndroidViewModel
@@ -75,6 +76,7 @@ data class LauncherUiState(
     val activePopupHomeItemId: Long? = null,
     val activePopupAnchorRect: Rect? = null,
     val activeWidgetResizeItem: HomeItemEntity? = null,
+    val pendingUninstallApp: AppInfo? = null,
     val isWorkspaceMenuVisible: Boolean = false,
     val isQuickSettingsSheetVisible: Boolean = false,
     val isWidgetPickerSheetVisible: Boolean = false,
@@ -89,7 +91,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val settingsRepository = SettingsRepository(appContext)
     private val homeDatabase = HomeDatabase.getInstance(appContext)
     private val homeLayoutRepository = HomeLayoutRepository(homeDatabase.homeDao())
-    private val appLoaderRepository = AppLoaderRepository(appContext, viewModelScope)
+    private val appLoaderRepository = AppLoaderRepository(
+        context = appContext,
+        externalScope = viewModelScope,
+        onPackageRemovedListener = { removedPackage ->
+            viewModelScope.launch {
+                homeLayoutRepository.removePackageFromHomeAndFolders(removedPackage)
+                PixelNotificationListenerService.clearBadgeForPackage(removedPackage)
+            }
+        }
+    )
     private val backupRestoreManager = BackupRestoreManager(
         settingsRepository = settingsRepository,
         homeDao = homeDatabase.homeDao()
@@ -106,6 +117,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val _activeFolderId = MutableStateFlow<Long?>(null)
     private val _activePopupState = MutableStateFlow<PopupAnchorData?>(null)
     private val _activeWidgetResizeId = MutableStateFlow<Long?>(null)
+    private val _pendingUninstallApp = MutableStateFlow<AppInfo?>(null)
     private val _isWorkspaceMenuVisible = MutableStateFlow(false)
     private val _isQuickSettingsSheetVisible = MutableStateFlow(false)
     private val _isWidgetPickerSheetVisible = MutableStateFlow(false)
@@ -140,6 +152,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val activeFolderId: Long?,
         val activePopup: PopupAnchorData?,
         val activeWidgetResizeId: Long?,
+        val pendingUninstallApp: AppInfo?,
         val workspaceMenuVisible: Boolean,
         val quickSettingsVisible: Boolean,
         val widgetPickerVisible: Boolean,
@@ -161,14 +174,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _isDefaultHomeApp,
         _activeFolderId,
         _activePopupState,
-        sheetVisibilityFlow
-    ) { query, isDefault, folderId, popup, sheets ->
+        combine(sheetVisibilityFlow, _pendingUninstallApp) { sheets, uninstallApp ->
+            sheets to uninstallApp
+        }
+    ) { query, isDefault, folderId, popup, (sheets, uninstallApp) ->
         OverlayState(
             searchQuery = query,
             isDefaultHome = isDefault,
             activeFolderId = folderId,
             activePopup = popup,
             activeWidgetResizeId = sheets[3] as Long?,
+            pendingUninstallApp = uninstallApp,
             workspaceMenuVisible = sheets[0] as Boolean,
             quickSettingsVisible = sheets[1] as Boolean,
             widgetPickerVisible = sheets[2] as Boolean,
@@ -309,6 +325,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             activePopupHomeItemId = overlay.activePopup?.homeItemId,
             activePopupAnchorRect = overlay.activePopup?.anchorRect,
             activeWidgetResizeItem = activeWidgetResize,
+            pendingUninstallApp = overlay.pendingUninstallApp,
             isWorkspaceMenuVisible = overlay.workspaceMenuVisible,
             isQuickSettingsSheetVisible = overlay.quickSettingsVisible,
             isWidgetPickerSheetVisible = overlay.widgetPickerVisible,
@@ -362,6 +379,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _activeFolderId.value = null
         _activePopupState.value = null
         _activeWidgetResizeId.value = null
+        _pendingUninstallApp.value = null
         _isWorkspaceMenuVisible.value = false
         _isQuickSettingsSheetVisible.value = false
         _isWidgetPickerSheetVisible.value = false
@@ -376,6 +394,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun onResumeFromLaunchedApp() {
         lastLaunchedAppAndBounds = null
         _activeMorphState.value = null
+        appLoaderRepository.refreshInstalledApps()
     }
 
     fun clearMorphState() {
@@ -482,8 +501,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val fractionX = (fingerOffset.x / screenWidthPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
             val topTarget = if (current.sourceHomeItemId != null) {
                 when {
-                    fractionX < 0.48f -> TopDropTarget.REMOVE
-                    fractionX < 0.74f -> TopDropTarget.APP_INFO
+                    fractionX < 0.34f -> TopDropTarget.REMOVE
+                    fractionX < 0.67f -> TopDropTarget.APP_INFO
                     else -> TopDropTarget.UNINSTALL
                 }
             } else {
@@ -923,11 +942,39 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun openAppDetails(app: AppInfo) {
+        _activePopupState.value = null
+        _pendingUninstallApp.value = null
         appLoaderRepository.openAppDetailsSettings(app)
     }
 
     fun uninstallApp(app: AppInfo) {
-        appLoaderRepository.requestUninstallApp(app)
+        _activePopupState.value = null
+        val launchedSystemUninstaller = appLoaderRepository.requestUninstallApp(app)
+        if (!launchedSystemUninstaller) {
+            _pendingUninstallApp.value = app
+        }
+    }
+
+    fun confirmLauncherUninstall(app: AppInfo) {
+        _pendingUninstallApp.value = null
+        _activePopupState.value = null
+        viewModelScope.launch {
+            homeLayoutRepository.removePackageFromHomeAndFolders(
+                packageName = app.packageName,
+                componentKey = app.componentKey
+            )
+            settingsRepository.updateSettings { current ->
+                current.copy(hiddenAppKeys = current.hiddenAppKeys + app.componentKey)
+            }
+            PixelNotificationListenerService.clearBadgeForPackage(app.packageName)
+            runCatching {
+                Toast.makeText(appContext, "${app.label} uninstalled", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun dismissUninstallDialog() {
+        _pendingUninstallApp.value = null
     }
 
     fun openCalendarOrClock() {
