@@ -114,18 +114,12 @@ import com.example.ui.theme.parseHexColorSafe
 import java.util.Locale
 
 private enum class SettingsSectionTab(val title: String) {
-    ALL("All"),
-    APP_COLORS("App Colors"),
-    TABLET_UNIVERSAL("Tablet & Universal"),
-    ICONS("Icons & Packs"),
-    HOME("Home Grid"),
-    SEARCH("Search Bar"),
-    DOCK("Dock"),
-    DRAWER("Drawer"),
-    FOLDERS("Folders"),
-    ANIMATIONS("Animations & Gestures"),
-    THEME("Theme"),
-    BACKUP("Backup & System")
+    STYLE_ICONS("Style & Icons"),
+    HOME_WEATHER("Home & Weather"),
+    DRAWER("Drawer & Folders"),
+    MOTION_GESTURES("Motion & Gestures"),
+    DEVICE_SYSTEM("System & Backup"),
+    ALL("All Settings")
 }
 
 private data class AppColorThemePreset(
@@ -200,15 +194,18 @@ fun QuickStyleAndSettingsSheet(
                     maxWidth >= 600.dp
 
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Top App Bar
+                    // Clean, Minimal Top App Bar
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             IconButton(onClick = onDismiss) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -217,18 +214,21 @@ fun QuickStyleAndSettingsSheet(
                             }
                             Column {
                                 Text(
-                                    text = "Customization & Home Settings",
-                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                    text = "PixelHome Customization",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold)
                                 )
                                 Text(
-                                    text = "App Colors · Squircle Engine · Gestures · Universal Android",
+                                    text = "v0.3.0 Release · Simple grouped controls · Live preview",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        OutlinedButton(onClick = onResetDefaults) {
+                        OutlinedButton(
+                            onClick = onResetDefaults,
+                            shape = RoundedCornerShape(18.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Filled.Refresh,
                                 contentDescription = null,
@@ -451,6 +451,8 @@ fun QuickStyleAndSettingsSheet(
         PixelWelcomeScreenDialog(
             visible = true,
             isDefaultHome = true,
+            settings = settings,
+            onUpdateSettings = onUpdateSettings,
             onRequestSetDefaultHome = {},
             onGetStarted = { showWelcomeDialogInSettings = false },
             onDismiss = { showWelcomeDialogInSettings = false }
@@ -475,16 +477,19 @@ private fun SettingsScrollableContent(
     modifier: Modifier = Modifier
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         // =====================================================
         // SECTION A: APP COLORS STUDIO (Global & Per-App Color Engine)
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.APP_COLORS) {
-            SectionHeader("App Color Studio (Global & Per-App Colors)")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.STYLE_ICONS) {
+          SettingsGroupCard(
+              title = "App Color Studio",
+              subtitle = "1-tap themes, background plates & per-app colors"
+          ) {
 
             MiuiIconCompatibilityWarningCard(
                 settings = settings,
@@ -621,14 +626,17 @@ private fun SettingsScrollableContent(
                 Text("Customize Individual App Colors & Names (${settings.customAppOverrides.size} active)")
             }
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION B: TABLET, FOLDABLE & UNIVERSAL ANDROID SUPPORT
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.TABLET_UNIVERSAL) {
-            SectionHeader("Tablet, Foldable & Universal Android Support")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.DEVICE_SYSTEM) {
+          SettingsGroupCard(
+              title = "Device Mode & Language",
+              subtitle = "Auto tablet layout, language & OEM icon compatibility"
+          ) {
 
             val configuration = LocalConfiguration.current
             val isLargeScreenConfig =
@@ -777,21 +785,17 @@ private fun SettingsScrollableContent(
                 }
             }
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 1: ICONS & ICON PACKS
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.ICONS) {
-            SectionHeader("1. Icons & Squircle Engine (|x|ⁿ + |y|ⁿ = 1)")
-
-            if (activeSection == SettingsSectionTab.ICONS) {
-                MiuiIconCompatibilityWarningCard(
-                    settings = settings,
-                    onUpdateSettings = onUpdateSettings
-                )
-            }
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.STYLE_ICONS) {
+          SettingsGroupCard(
+              title = "Icon Shape & Labels",
+              subtitle = "Squarer squircle curve, icon scale, labels & badges"
+          ) {
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -875,7 +879,9 @@ private fun SettingsScrollableContent(
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 listOf(1, 2).forEach { lines ->
                     FilterChip(
@@ -966,7 +972,9 @@ private fun SettingsScrollableContent(
             Text("Notification Badge Style", style = MaterialTheme.typography.bodyMedium)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 BadgeStyle.entries.forEach { badge ->
                     FilterChip(
@@ -977,14 +985,17 @@ private fun SettingsScrollableContent(
                 }
             }
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
-        // SECTION 2: HOME WORKSPACE
+        // SECTION 2: HOME WORKSPACE & WEATHER
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.HOME) {
-            SectionHeader("2. Home Grid & At a Glance")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.HOME_WEATHER) {
+          SettingsGroupCard(
+              title = "Home Grid & Weather Units",
+              subtitle = "Grid layout, Celsius/Fahrenheit/Kelvin weather & At-a-Glance"
+          ) {
 
             Text("Phone Grid Columns × Rows (4×4 to 7×7)", style = MaterialTheme.typography.bodyMedium)
             Row(
@@ -1034,7 +1045,9 @@ private fun SettingsScrollableContent(
             Text("Page Indicator Style", style = MaterialTheme.typography.bodyMedium)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 PageIndicatorStyle.entries.forEach { ind ->
                     FilterChip(
@@ -1123,14 +1136,17 @@ private fun SettingsScrollableContent(
                 }
             }
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 3: SEARCH BAR
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.SEARCH) {
-            SectionHeader("3. Search Bar")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.HOME_WEATHER) {
+          SettingsGroupCard(
+              title = "Search Bar",
+              subtitle = "Position, pill shape, opacity & search engine"
+          ) {
 
             Text("Search Bar Position", style = MaterialTheme.typography.bodyMedium)
             Row(
@@ -1151,7 +1167,9 @@ private fun SettingsScrollableContent(
             Text("Search Bar Shape Style", style = MaterialTheme.typography.bodyMedium)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 SearchBarStyle.entries.forEach { style ->
                     FilterChip(
@@ -1180,20 +1198,6 @@ private fun SettingsScrollableContent(
                 }
             )
 
-            SettingToggleRow(
-                title = "Show Voice Mic Icon",
-                subtitle = "Quick voice search trigger in search bar",
-                checked = settings.showMicIcon,
-                onCheckedChange = { v -> onUpdateSettings { it.copy(showMicIcon = v) } }
-            )
-
-            SettingToggleRow(
-                title = "Show Visual Lens Icon",
-                subtitle = "Quick visual camera search trigger in search bar",
-                checked = settings.showLensIcon,
-                onCheckedChange = { v -> onUpdateSettings { it.copy(showLensIcon = v) } }
-            )
-
             Text("Default Web Search Engine", style = MaterialTheme.typography.bodyMedium)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1210,14 +1214,17 @@ private fun SettingsScrollableContent(
                 }
             }
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 4: DOCK (HOTSEAT)
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.DOCK) {
-            SectionHeader("4. Hotseat Dock")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.HOME_WEATHER) {
+          SettingsGroupCard(
+              title = "Bottom Dock (Hotseat)",
+              subtitle = "Pinned icon count & dock background style"
+          ) {
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1265,14 +1272,17 @@ private fun SettingsScrollableContent(
                 onCheckedChange = { v -> onUpdateSettings { it.copy(showDockOnAllPages = v) } }
             )
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 5: APP DRAWER
         // =====================================================
         if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.DRAWER) {
-            SectionHeader("5. App Drawer & Hidden Vault")
+          SettingsGroupCard(
+              title = "App Drawer & Hidden Apps",
+              subtitle = "A–Z fast scroller, sort order, work profile & hidden vault"
+          ) {
 
             Text("Drawer Layout Mode", style = MaterialTheme.typography.bodyMedium)
             Row(
@@ -1452,14 +1462,17 @@ private fun SettingsScrollableContent(
                 )
             }
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 6: FOLDERS
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.FOLDERS) {
-            SectionHeader("6. Folders")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.DRAWER) {
+          SettingsGroupCard(
+              title = "Folders",
+              subtitle = "Preview grid style, panel color & folder titles"
+          ) {
 
             Text("Folder Icon Preview Style", style = MaterialTheme.typography.bodyMedium)
             Row(
@@ -1498,7 +1511,9 @@ private fun SettingsScrollableContent(
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 listOf(3, 4).forEach { cols ->
                     FilterChip(
@@ -1516,14 +1531,25 @@ private fun SettingsScrollableContent(
                 onCheckedChange = { v -> onUpdateSettings { it.copy(showFolderTitles = v) } }
             )
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 7: ANIMATIONS & GESTURES
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.ANIMATIONS) {
-            SectionHeader("7. Spring Physics & Gestures")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.MOTION_GESTURES) {
+          SettingsGroupCard(
+              title = "Haptics, Motion & Gestures",
+              subtitle = "Homepage swipe vibration, spring physics & gesture shortcuts"
+          ) {
+            SettingToggleRow(
+                title = "Vibrate When Moving Between Homepages",
+                subtitle = "Tactile haptic tick whenever swiping from homepage to homepage",
+                checked = settings.pageSwipeVibrationEnabled,
+                onCheckedChange = { v ->
+                    onUpdateSettings { it.copy(pageSwipeVibrationEnabled = v) }
+                }
+            )
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1637,18 +1663,23 @@ private fun SettingsScrollableContent(
                 onSelectAction = { a -> onUpdateSettings { it.copy(doubleTapAction = a) } }
             )
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 8: THEME & TYPOGRAPHY
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.THEME) {
-            SectionHeader("8. Material You Theme & Typography")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.STYLE_ICONS || activeSection == SettingsSectionTab.DEVICE_SYSTEM) {
+          SettingsGroupCard(
+              title = "Material You Theme & Fonts",
+              subtitle = "Dynamic wallpaper colors, dark/AMOLED mode & font family"
+          ) {
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 ThemeMode.entries.forEach { mode ->
                     FilterChip(
@@ -1706,14 +1737,17 @@ private fun SettingsScrollableContent(
                 onValueChange = { s -> onUpdateSettings { it.copy(uiCornerRadiusScale = s) } }
             )
 
-            HorizontalDivider()
+          }
         }
 
         // =====================================================
         // SECTION 9: SYSTEM, BACKUP & RESTORE
         // =====================================================
-        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.BACKUP) {
-            SectionHeader("9. Backup, Restore & Reset (JSON)")
+        if (activeSection == SettingsSectionTab.ALL || activeSection == SettingsSectionTab.DEVICE_SYSTEM) {
+          SettingsGroupCard(
+              title = "Backup, Restore & Welcome Setup",
+              subtitle = "Export/import JSON layout backups or re-open first-launch setup"
+          ) {
 
             if (!backupStatusMessage.isNullOrBlank()) {
                 Surface(
@@ -1813,8 +1847,9 @@ private fun SettingsScrollableContent(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("View Pixel Welcome & Feature Guide 🌸")
+                Text("Open First-Launch Quick Setup ✨")
             }
+          }
         }
     }
 }
@@ -2022,12 +2057,43 @@ private fun MiuiIconCompatibilityWarningCard(
 }
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.primary
-    )
+private fun SettingsGroupCard(
+    title: String,
+    subtitle: String,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        tonalElevation = 2.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(18.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+            )
+            content()
+        }
+    }
 }
 
 @Composable

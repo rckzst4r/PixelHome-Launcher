@@ -178,7 +178,7 @@ internal object SquirclePathCache {
  */
 @Immutable
 class SquircleShape(
-    val exponent: Float = 4.0f,
+    val exponent: Float = 5.4f,
     val preset: IconShapePreset = IconShapePreset.SQUIRCLE
 ) : Shape {
 
@@ -213,9 +213,9 @@ class SquircleShape(
             }
 
             IconShapePreset.ROUNDED_SQUARE -> {
-                val safeExp = if (exponent.isFinite()) exponent.coerceIn(2f, 10f) else 4f
+                val safeExp = if (exponent.isFinite()) exponent.coerceIn(2f, 10f) else 5.4f
                 val normalized = ((safeExp - 2f) / 8f)
-                val fraction = (0.45f - normalized * 0.27f).coerceIn(0.14f, 0.48f)
+                val fraction = (0.26f - normalized * 0.14f).coerceIn(0.12f, 0.26f)
                 val r = min(size.width, size.height) * fraction
                 Outline.Rounded(
                     RoundRect(
@@ -226,7 +226,7 @@ class SquircleShape(
             }
 
             IconShapePreset.TEARDROP -> {
-                val rLarge = min(size.width, size.height) * 0.48f
+                val rLarge = min(size.width, size.height) * 0.44f
                 val rSmall = min(size.width, size.height) * 0.12f
                 Outline.Rounded(
                     RoundRect(
@@ -252,9 +252,9 @@ class SquircleShape(
             }
 
             IconShapePreset.SQUIRCLE -> {
-                val safeExp = if (exponent.isFinite()) exponent.coerceIn(2.0f, 10.0f) else 4.0f
+                val safeExp = if (exponent.isFinite()) exponent.coerceIn(2.0f, 10.0f) else 5.4f
                 val normalized = ((safeExp - 2.0f) / 8.0f)
-                val fraction = (0.46f - normalized * 0.30f).coerceIn(0.15f, 0.48f)
+                val fraction = (0.32f - normalized * 0.18f).coerceIn(0.14f, 0.32f)
                 val r = min(size.width, size.height) * fraction
                 Outline.Rounded(
                     RoundRect(

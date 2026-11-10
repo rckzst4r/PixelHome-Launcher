@@ -16,6 +16,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.LruCache
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.example.launcher.model.AppInfo
@@ -49,6 +50,7 @@ data class CachedAppIconLayers(
     val dominantSeedColor: Int
 )
 
+@Stable
 class IconCache(
     private val context: Context,
     private val activityInfoProvider: ((String) -> LauncherActivityInfo?)? = null,
@@ -56,6 +58,7 @@ class IconCache(
 ) {
     // 112px is 2x density for 56dp icons: crisp inside squircle masks while using 40% less RAM & CPU than 144px
     private val iconPixelSize = 112
+    private val densityDpi = context.resources.displayMetrics.densityDpi
     val iconPackManager = IconPackManager(context)
 
     private val memoryCache = object : LruCache<String, CachedAppIconLayers>(320) {}
@@ -92,7 +95,7 @@ class IconCache(
     suspend fun preloadIcons(apps: List<AppInfo>, iconPackPkg: String = "") {
         withContext(defaultDispatcher) {
             supervisorScope {
-                apps.distinctBy { it.componentKey }.chunked(3).forEach { batch ->
+                apps.distinctBy { it.componentKey }.chunked(8).forEach { batch ->
                     batch.map { app ->
                         async {
                             val cacheKey = "${app.componentKey}|$iconPackPkg"
@@ -156,10 +159,9 @@ class IconCache(
         if (!app.isSynthesizedSample) {
             try {
                 val cachedActivityInfo = activityInfoProvider?.invoke(app.componentKey)
-                val density = context.resources.displayMetrics.densityDpi
 
                 val rawDrawable: Drawable? = cachedActivityInfo?.let {
-                    runCatching { it.getIcon(density) }.getOrNull()
+                    runCatching { it.getIcon(densityDpi) }.getOrNull()
                 } ?: runCatching {
                     context.packageManager.getActivityIcon(app.componentName)
                 }.getOrNull() ?: runCatching {
@@ -168,7 +170,7 @@ class IconCache(
                     val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as? LauncherApps
                     launcherApps?.getActivityList(app.packageName, app.userHandle)
                         ?.firstOrNull()
-                        ?.getIcon(density)
+                        ?.getIcon(densityDpi)
                 }.getOrNull()
 
                 if (rawDrawable != null) {

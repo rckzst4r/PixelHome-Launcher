@@ -1,5 +1,6 @@
 package com.example.launcher.data.db
 
+import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.squareup.moshi.JsonClass
@@ -16,6 +17,7 @@ enum class HomeCellItemType {
     SHORTCUT
 }
 
+@Immutable
 @Entity(tableName = "home_items")
 @JsonClass(generateAdapter = true)
 data class HomeItemEntity(
@@ -37,6 +39,7 @@ data class HomeItemEntity(
         else folderMemberKeysCsv.split(",").map { it.trim() }.filter { it.isNotEmpty() }
 }
 
+@Immutable
 @Entity(tableName = "app_usage_stats")
 @JsonClass(generateAdapter = true)
 data class AppUsageEntity(

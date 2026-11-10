@@ -4,6 +4,8 @@ import android.graphics.Rect
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -150,18 +152,20 @@ fun AppDrawerSheet(
     val pullDownToCloseConnection = remember(gridState) {
         object : NestedScrollConnection {
             private var pullDownOverscrollAccumulated = 0f
+            private var isSheetPullDownActive = false
 
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val currentP = progressProvider()
-                if (currentP >= 0.999f) {
-                    if (available.y < 0f) {
-                        pullDownOverscrollAccumulated = 0f
-                    }
-                    return Offset.Zero
-                }
-                if (source == NestedScrollSource.UserInput && available.y < 0f) {
+                if (source == NestedScrollSource.UserInput &&
+                    isSheetPullDownActive &&
+                    available.y < 0f &&
+                    progressProvider() < 0.99f
+                ) {
                     onDragDrawerByDelta(available.y)
                     return Offset(0f, available.y)
+                }
+                if (available.y < 0f) {
+                    pullDownOverscrollAccumulated = 0f
+                    isSheetPullDownActive = false
                 }
                 return Offset.Zero
             }
@@ -178,21 +182,25 @@ fun AppDrawerSheet(
                     gridState.firstVisibleItemScrollOffset == 0
                 ) {
                     pullDownOverscrollAccumulated += available.y
-                    if (pullDownOverscrollAccumulated > 28f) {
+                    if (pullDownOverscrollAccumulated > 32f) {
+                        isSheetPullDownActive = true
                         onDragDrawerByDelta(available.y)
+                        return Offset(0f, available.y)
                     }
-                    return Offset(0f, available.y)
-                }
-                if (available.y <= 0f) {
+                } else if (available.y < 0f) {
                     pullDownOverscrollAccumulated = 0f
+                    if (progressProvider() >= 0.99f) {
+                        isSheetPullDownActive = false
+                    }
                 }
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
+                val wasDraggingSheet = isSheetPullDownActive && progressProvider() < 0.96f
                 pullDownOverscrollAccumulated = 0f
-                val currentP = progressProvider()
-                if (currentP < 0.96f) {
+                isSheetPullDownActive = false
+                if (wasDraggingSheet) {
                     onSettleDrawerWithVelocity(available.y)
                     return available
                 }
@@ -381,7 +389,8 @@ fun AppDrawerSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
                     if (settings.showWorkProfileTab && hasWorkProfileApps) {
                         FilterChip(
@@ -585,7 +594,7 @@ fun AppDrawerSheet(
                             columns = GridCells.Fixed(cols),
                             contentPadding = PaddingValues(
                                 start = 14.dp,
-                                end = if (settings.showAzFastScroller) 30.dp else 14.dp,
+                                end = if (settings.showAzFastScroller) 38.dp else 14.dp,
                                 top = 8.dp,
                                 bottom = navBarBottom + 24.dp
                             ),
@@ -845,74 +854,134 @@ fun AppDrawerSheet(
                     }
                 }
 
-                // Right-edge A–Z Fast Scroller
+                // Right-edge A–Z Fast Scroller (supports both single tap and continuous vertical scrub)
                 if (settings.showAzFastScroller &&
                     settings.drawerLayoutMode == DrawerLayoutMode.VERTICAL &&
                     searchQuery.isBlank()
                 ) {
+                    val scrollToLetter: (String, Boolean) -> Unit = { letter, forceScroll ->
+                        if (activeFastScrollLetter != letter || forceScroll) {
+                            activeFastScrollLetter = letter
+                            LauncherHaptics.performSnapOrTick(rootView, settings)
+                            if (filteredApps.isNotEmpty()) {
+                                val exactIdx = filteredApps.indexOfFirst { app ->
+                                    val customLabel = settings.customAppOverrides[app.componentKey]?.customLabel
+                                    val firstChar = (customLabel?.firstOrNull() ?: app.label.firstOrNull())?.uppercaseChar()
+                                    val appLetter = if (firstChar != null && firstChar in 'A'..'Z') {
+                                        firstChar.toString()
+                                    } else {
+                                        "#"
+                                    }
+                                    appLetter == letter
+                                }
+                                val fallbackIdx = if (exactIdx >= 0) {
+                                    exactIdx
+                                } else {
+                                    val nextIdx = filteredApps.indexOfFirst { app ->
+                                        val customLabel = settings.customAppOverrides[app.componentKey]?.customLabel
+                                        val firstChar = (customLabel?.firstOrNull() ?: app.label.firstOrNull())?.uppercaseChar()
+                                        val appLetter = if (firstChar != null && firstChar in 'A'..'Z') {
+                                            firstChar.toString()
+                                        } else {
+                                            "#"
+                                        }
+                                        if (letter == "#") true else appLetter >= letter
+                                    }
+                                    if (nextIdx >= 0) nextIdx else filteredApps.lastIndex
+                                }
+
+                                val headerOffset = if (
+                                    settings.showSuggestedAppsRow &&
+                                    searchQuery.isBlank() &&
+                                    !selectedWorkTab &&
+                                    selectedCategory == null &&
+                                    uniqueSuggestedApps.isNotEmpty()
+                                ) {
+                                    uniqueSuggestedApps.size + 2
+                                } else {
+                                    0
+                                }
+                                coroutineScope.launch {
+                                    runCatching {
+                                        gridState.scrollToItem((headerOffset + fallbackIdx).coerceAtLeast(0))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.SpaceEvenly,
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .fillMaxHeight()
-                            .padding(top = 16.dp, bottom = 16.dp, end = 4.dp)
-                            .width(24.dp)
-                            .pointerInput(filteredApps, uniqueSuggestedApps) {
-                                detectVerticalDragGestures(
-                                    onDragEnd = { activeFastScrollLetter = null },
-                                    onDragCancel = { activeFastScrollLetter = null },
-                                    onVerticalDrag = { change, _ ->
-                                        val posY = change.position.y
-                                        if (!posY.isFinite()) return@detectVerticalDragGestures
-                                        val fraction = (posY / size.height.coerceAtLeast(1))
+                            .padding(top = 12.dp, bottom = 12.dp, end = 2.dp)
+                            .width(34.dp)
+                            .testTag("az_fast_scroller")
+                            .pointerInput(
+                                filteredApps,
+                                uniqueSuggestedApps,
+                                settings.showSuggestedAppsRow,
+                                selectedWorkTab,
+                                selectedCategory
+                            ) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    down.consume()
+
+                                    fun resolveAndScroll(yPos: Float, force: Boolean) {
+                                        if (!yPos.isFinite()) return
+                                        val fraction = (yPos / size.height.coerceAtLeast(1))
                                             .coerceIn(0f, 0.999f)
                                         val letterIndex = (fraction * alphabetLetters.size).toInt()
                                             .coerceIn(0, alphabetLetters.lastIndex)
                                         val letter = alphabetLetters[letterIndex]
-                                        if (activeFastScrollLetter != letter) {
-                                            activeFastScrollLetter = letter
-                                            LauncherHaptics.performSnapOrTick(rootView, settings)
-                                            val targetIdx = filteredApps.indexOfFirst {
-                                                it.initialLetter == letter
-                                            }
-                                            if (targetIdx >= 0) {
-                                                val headerOffset = if (
-                                                    settings.showSuggestedAppsRow &&
-                                                    searchQuery.isBlank() &&
-                                                    !selectedWorkTab &&
-                                                    selectedCategory == null &&
-                                                    uniqueSuggestedApps.isNotEmpty()
-                                                ) {
-                                                    uniqueSuggestedApps.size + 2
-                                                } else {
-                                                    0
-                                                }
-                                                coroutineScope.launch {
-                                                    runCatching {
-                                                        gridState.scrollToItem((headerOffset + targetIdx).coerceAtLeast(0))
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        scrollToLetter(letter, force)
                                     }
-                                )
+
+                                    resolveAndScroll(down.position.y, true)
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val activeChange = event.changes.firstOrNull { it.id == down.id }
+                                            ?: event.changes.firstOrNull()
+                                        if (activeChange == null || !activeChange.pressed) {
+                                            break
+                                        }
+                                        activeChange.consume()
+                                        resolveAndScroll(activeChange.position.y, false)
+                                    }
+
+                                    coroutineScope.launch {
+                                        kotlinx.coroutines.delay(240L)
+                                        activeFastScrollLetter = null
+                                    }
+                                }
                             }
                     ) {
                         alphabetLetters.forEach { letter ->
                             val isHighlighted = activeFastScrollLetter == letter
-                            Text(
-                                text = letter,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = if (isHighlighted) 12.sp else 9.sp,
-                                    fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isHighlighted) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-                                    }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .testTag("az_letter_$letter")
+                            ) {
+                                Text(
+                                    text = letter,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = if (isHighlighted) 12.sp else 9.5.sp,
+                                        fontWeight = if (isHighlighted) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                        color = if (isHighlighted) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f)
+                                        }
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }

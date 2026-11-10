@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,6 +88,7 @@ enum class WorkspaceHoverMode {
  *        - Outer ring (`r >= 0.46f`): triggers `REFLOW_NEIGHBOR` (calculates the nearest unoccupied
  *          cell on the page via spiral Manhattan distance search and animates the neighbor into that cell).
  */
+@Immutable
 data class DragSessionState(
     val draggedApp: AppInfo,
     val sourceHomeItemId: Long? = null, // null if dragged out of App Drawer

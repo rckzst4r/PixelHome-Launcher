@@ -114,22 +114,6 @@ class HomeLayoutRepository(
                 )
             }
 
-            // 3. Workspace Page 1
-            val page1Apps = remainingApps.drop(columns + 3).take(columns * 2)
-            page1Apps.forEachIndexed { idx, app ->
-                seeded.add(
-                    HomeItemEntity(
-                        container = HomeContainerType.WORKSPACE.name,
-                        page = 1,
-                        cellX = idx % columns,
-                        cellY = 1 + (idx / columns),
-                        itemType = HomeCellItemType.APP.name,
-                        componentKey = app.componentKey,
-                        title = app.label
-                    )
-                )
-            }
-
             homeDao.insertHomeItems(seeded)
         }
     }

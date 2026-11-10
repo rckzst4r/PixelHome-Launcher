@@ -172,11 +172,7 @@ class AppLoaderRepository(
             }
         }
 
-        // If running in a minimal container with very few user apps or no work profile,
-        // supplement with realistic work profile & essential Pixel companions so a 5x5 grid,
-        // Suggested row, Work tab, and A-Z fast scroller are richly interactive out-of-the-box.
-        val enriched = supplementIfSparse(result.distinctBy { it.componentKey })
-        enriched
+        result
             .distinctBy { it.componentKey }
             .sortedBy { it.label.lowercase() }
     }
@@ -269,25 +265,6 @@ class AppLoaderRepository(
                 combined.contains("store") || combined.contains("chrome") -> AppCategoryType.TOOLS
             else -> AppCategoryType.OTHER
         }
-    }
-
-    private fun supplementIfSparse(realApps: List<AppInfo>): List<AppInfo> {
-        val out = realApps.toMutableList()
-        val hasWorkApps = out.any { it.isWorkProfile }
-        if (!hasWorkApps && out.isNotEmpty()) {
-            // Mirror up to 5 productivity/tool apps into the Work Profile tab so Work tab can be tested live
-            val workCandidates = out.take(5)
-            workCandidates.forEachIndexed { idx, base ->
-                out.add(
-                    base.copy(
-                        userSerial = 10L + idx,
-                        isWorkProfile = true,
-                        category = AppCategoryType.PRODUCTIVITY
-                    )
-                )
-            }
-        }
-        return out
     }
 
     /**

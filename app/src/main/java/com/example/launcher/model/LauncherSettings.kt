@@ -223,7 +223,7 @@ data class CustomAppOverride(
 data class LauncherSettings(
     // 1. Icons & App Colors
     val iconShape: IconShapePreset = IconShapePreset.SQUIRCLE,
-    val squircleExponent: Float = 4.0f, // n = 2.0 (circle) to 10.0 (near-square)
+    val squircleExponent: Float = 5.4f, // n = 2.0 (circle) to 10.0 (near-square) — squarer default
     val iconSizeScale: Float = 1.0f, // 0.50f to 1.30f
     val showHomeLabels: Boolean = true,
     val showDrawerLabels: Boolean = true,
@@ -247,7 +247,7 @@ data class LauncherSettings(
     val gridColumns: Int = 5, // 4 to 7
     val gridRows: Int = 5, // 4 to 7
     val gridHorizontalPaddingDp: Int = 14,
-    val homePageCount: Int = 2,
+    val homePageCount: Int = 1,
     val infiniteScroll: Boolean = false,
     val pageIndicatorStyle: PageIndicatorStyle = PageIndicatorStyle.DOTS,
     val lockHomeLayout: Boolean = false,
@@ -274,8 +274,8 @@ data class LauncherSettings(
     val searchBarStyle: SearchBarStyle = SearchBarStyle.PILL,
     val searchBarOpacity: Float = 0.90f,
     val searchBarCornerRadiusDp: Int = 28,
-    val showMicIcon: Boolean = true,
-    val showLensIcon: Boolean = true,
+    val showMicIcon: Boolean = false,
+    val showLensIcon: Boolean = false,
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
 
     // 5. Dock (Hotseat)
@@ -298,7 +298,7 @@ data class LauncherSettings(
     val hiddenAppKeys: Set<String> = emptySet(),
     val biometricLockForHiddenApps: Boolean = true,
     val showDrawerCategoryTabs: Boolean = false,
-    val showWorkProfileTab: Boolean = true,
+    val showWorkProfileTab: Boolean = false,
     val autoOpenDrawerKeyboard: Boolean = false,
     val searchApps: Boolean = true,
     val searchContacts: Boolean = true,
@@ -320,6 +320,7 @@ data class LauncherSettings(
     val springStiffness: Float = 380f,
     val appOpenAnimationStyle: AppOpenAnimationStyle = AppOpenAnimationStyle.ICON_ZOOM,
     val hapticStrength: HapticStrength = HapticStrength.MEDIUM,
+    val pageSwipeVibrationEnabled: Boolean = true,
     val respectSystemAnimatorScale: Boolean = true,
 
     // 9. Gestures

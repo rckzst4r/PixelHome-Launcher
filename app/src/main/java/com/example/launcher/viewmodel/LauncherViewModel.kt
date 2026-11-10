@@ -12,6 +12,7 @@ import android.os.Build
 import android.provider.AlarmClock
 import android.provider.CalendarContract
 import android.view.View
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -51,12 +52,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
 
+@Immutable
 data class PopupAnchorData(
     val app: AppInfo,
     val homeItemId: Long?,
     val anchorRect: Rect
 )
 
+@Immutable
 data class LauncherUiState(
     val isLoading: Boolean = true,
     val settings: LauncherSettings = LauncherSettings(),
@@ -228,7 +231,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
         val appsByKey = enrichedApps.associateBy { it.componentKey }
 
-        if (enrichedApps.isNotEmpty() && homeItems.isEmpty()) {
+        if (!seededInitialHomeOnce && enrichedApps.isNotEmpty() && homeItems.isEmpty()) {
+            seededInitialHomeOnce = true
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 homeLayoutRepository.ensureSeededWithApps(
                     apps = enrichedApps,
@@ -236,6 +240,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     columns = settings.gridColumns
                 )
             }
+        } else if (homeItems.isNotEmpty()) {
+            seededInitialHomeOnce = true
         }
 
         val personalApps = enrichedApps.filter { !it.isWorkProfile && it.componentKey !in settings.hiddenAppKeys }
@@ -365,17 +371,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _homePressEvents.tryEmit(Unit)
     }
 
+    private var seededInitialHomeOnce = false
+
     fun onResumeFromLaunchedApp() {
-        val previous = lastLaunchedAppAndBounds ?: return
-        val elapsed = System.currentTimeMillis() - lastLaunchTimestampMs
-        if (elapsed > 180L) {
-            lastLaunchedAppAndBounds = null
-            _activeMorphState.value = AppWindowMorphState(
-                app = previous.first,
-                iconBoundsOnScreen = previous.second,
-                isClosingToIcon = true
-            )
-        }
+        lastLaunchedAppAndBounds = null
+        _activeMorphState.value = null
     }
 
     fun clearMorphState() {
@@ -482,8 +482,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val fractionX = (fingerOffset.x / screenWidthPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
             val topTarget = if (current.sourceHomeItemId != null) {
                 when {
-                    fractionX < 0.33f -> TopDropTarget.REMOVE
-                    fractionX < 0.66f -> TopDropTarget.APP_INFO
+                    fractionX < 0.48f -> TopDropTarget.REMOVE
+                    fractionX < 0.74f -> TopDropTarget.APP_INFO
                     else -> TopDropTarget.UNINSTALL
                 }
             } else {
@@ -789,25 +789,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun launchApp(app: AppInfo, rootView: View?, iconBounds: Rect?) {
         _activePopupState.value = null
         _activeFolderId.value = null
+        _activeMorphState.value = null
         val bounds = iconBounds ?: Rect(200, 400, 360, 560)
 
-        lastLaunchedAppAndBounds = app to bounds
-        lastLaunchTimestampMs = System.currentTimeMillis()
-        _activeMorphState.value = AppWindowMorphState(
+        appLoaderRepository.launchApp(
             app = app,
+            rootView = rootView,
             iconBoundsOnScreen = bounds,
-            isClosingToIcon = false
+            animationStyle = uiState.value.settings.appOpenAnimationStyle
         )
 
         viewModelScope.launch {
             homeLayoutRepository.recordAppLaunch(app.componentKey)
-            delay(45L)
-            appLoaderRepository.launchApp(
-                app = app,
-                rootView = rootView,
-                iconBoundsOnScreen = bounds,
-                animationStyle = uiState.value.settings.appOpenAnimationStyle
-            )
         }
     }
 
@@ -874,24 +867,51 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun addAppToCurrentWorkspace(app: AppInfo, currentPage: Int) {
         viewModelScope.launch {
             val state = uiState.value
-            val cols = state.settings.gridColumns
-            val rows = state.settings.gridRows
-            val existing = state.workspaceItemsByPage[currentPage].orEmpty()
-            val occupied = existing.map { it.cellX to it.cellY }.toSet()
+            val cols = state.settings.gridColumns.coerceIn(4, 7)
+            val rows = state.settings.gridRows.coerceIn(4, 7)
+            val totalPages = maxOf(
+                state.settings.homePageCount,
+                (state.workspaceItemsByPage.keys.maxOrNull() ?: 0) + 1,
+                1
+            )
 
-            for (r in 1 until rows) {
-                for (c in 0 until cols) {
-                    if ((c to r) !in occupied) {
-                        homeLayoutRepository.addAppToHome(app, currentPage, c, r)
-                        return@launch
+            // Search currentPage first, then remaining pages in order
+            val candidatePages = buildList {
+                add(currentPage.coerceIn(0, totalPages - 1))
+                for (p in 0 until totalPages) {
+                    if (p !in this) add(p)
+                }
+            }
+
+            for (page in candidatePages) {
+                val existing = state.workspaceItemsByPage[page].orEmpty()
+                val occupied = existing
+                    .filter { it.itemType != HomeCellItemType.WIDGET.name }
+                    .map { it.cellX to it.cellY }
+                    .toSet()
+                val startRow = if (page == 0 && state.settings.showAtAGlance) 1 else 0
+
+                for (r in startRow until rows) {
+                    for (c in 0 until cols) {
+                        if ((c to r) !in occupied) {
+                            homeLayoutRepository.addAppToHome(app, page, c, r)
+                            return@launch
+                        }
                     }
                 }
             }
-            homeLayoutRepository.addAppToHome(app, currentPage, 0, rows - 1)
+
+            // All existing pages are full: create a new page and place the app at (0, 0)
+            val newPage = totalPages
+            settingsRepository.updateSettings {
+                it.copy(homePageCount = (newPage + 1).coerceAtMost(7))
+            }
+            homeLayoutRepository.addAppToHome(app, newPage, 0, 0)
         }
     }
 
     fun removeHomeItem(id: Long) {
+        _activePopupState.value = null
         viewModelScope.launch {
             val items = uiState.value.workspaceItemsByPage.values.flatten()
             val widgetItem = items.firstOrNull { it.id == id && it.appWidgetId > 0 }

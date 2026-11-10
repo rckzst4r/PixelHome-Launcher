@@ -2,6 +2,7 @@ package com.example.launcher.ui.components
 
 import android.graphics.Rect
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -10,6 +11,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -49,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -60,7 +64,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -303,15 +307,14 @@ fun DefaultHomeRoleBanner(
 }
 
 /**
- * Pixel Launcher bottom pill search bar under the hotseat with Material You tonal elevation,
- * subtle specular border, and quick-action Voice & Lens triggers.
+ * Clean, minimal App Search Bar under the dock with Material You tonal elevation.
  */
 @Composable
 fun PixelSearchBar(
     settings: LauncherSettings,
     onSearchBarClick: () -> Unit,
-    onVoiceSearchClick: () -> Unit,
-    onLensClick: () -> Unit,
+    onVoiceSearchClick: () -> Unit = {},
+    onLensClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val shape = remember(settings.searchBarStyle, settings.searchBarCornerRadiusDp) {
@@ -335,7 +338,7 @@ fun PixelSearchBar(
         ),
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(50.dp)
             .clip(shape)
             .clickable(onClick = onSearchBarClick)
             .testTag("pixel_search_bar")
@@ -344,23 +347,14 @@ fun PixelSearchBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp)
+                .padding(horizontal = 18.dp)
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Text(
-                    text = settings.searchEngine.displayName.first().toString(),
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            }
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -374,36 +368,6 @@ fun PixelSearchBar(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-
-            if (settings.showMicIcon) {
-                IconButton(
-                    onClick = onVoiceSearchClick,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .testTag("search_mic_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Mic,
-                        contentDescription = "Voice search",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            if (settings.showLensIcon) {
-                IconButton(
-                    onClick = onLensClick,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .testTag("search_lens_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.CenterFocusStrong,
-                        contentDescription = "Visual search",
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
         }
     }
 }
@@ -450,8 +414,10 @@ fun PixelTabletTaskbar(
         shadowElevation = 14.dp,
         modifier = modifier
             .padding(horizontal = 20.dp, vertical = 4.dp)
-            .onGloballyPositioned { coords ->
-                onHotseatTopMeasured(coords.boundsInWindow().top)
+            .onPlaced { coords ->
+                if (coords.isAttached) {
+                    onHotseatTopMeasured(coords.boundsInWindow().top)
+                }
             }
             .graphicsLayer {
                 val p = drawerProgressProvider().coerceIn(0f, 1f)
@@ -614,7 +580,8 @@ fun WorkspaceLongPressMenuPopup(
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val popupWidthPx = with(density) { 268.dp.toPx() }
+    val popupWidthDp = (configuration.screenWidthDp - 32).coerceIn(220, 268).dp
+    val popupWidthPx = with(density) { popupWidthDp.toPx() }
     val popupHeightPx = with(density) { 224.dp.toPx() }
 
     val popupX = if (anchorOffset != null) {
@@ -642,82 +609,99 @@ fun WorkspaceLongPressMenuPopup(
 
     val pivotY = if (showAbove) 1.0f else 0.0f
 
+    val menuEntrance = remember { Animatable(0f) }
+    LaunchedEffect(anchorOffset) {
+        menuEntrance.snapTo(0f)
+        menuEntrance.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = 0.68f,
+                stiffness = 380f
+            )
+        )
+    }
+
     Popup(
         offset = IntOffset(popupX, popupY),
         onDismissRequest = onDismiss
     ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = scaleIn(
-                animationSpec = spring(dampingRatio = 0.76f, stiffness = 440f),
-                initialScale = 0.65f,
-                transformOrigin = TransformOrigin(pivotX, pivotY)
-            ) + fadeIn(),
-            exit = scaleOut(targetScale = 0.80f) + fadeOut()
-        ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
-                tonalElevation = 10.dp,
-                shadowElevation = 20.dp,
-                border = androidx.compose.foundation.BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                ),
-                modifier = Modifier
-                    .width(268.dp)
-                    .testTag("workspace_long_press_menu")
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.padding(10.dp)
-                ) {
-                    WorkspaceMenuActionTile(
-                        icon = Icons.Filled.Palette,
-                        title = stringResource(R.string.wallpaper_and_style),
-                        subtitle = "Colors, squircle shape & grid",
-                        iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        iconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        onClick = {
-                            onDismiss()
-                            onWallpaperAndStyleClick()
-                        }
-                    )
-
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-
-                    WorkspaceMenuActionTile(
-                        icon = Icons.Filled.Widgets,
-                        title = stringResource(R.string.widgets_menu),
-                        subtitle = "At-a-Glance, clocks & shortcuts",
-                        iconContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        onClick = {
-                            onDismiss()
-                            onWidgetsClick()
-                        }
-                    )
-
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-
-                    WorkspaceMenuActionTile(
-                        icon = Icons.Filled.Settings,
-                        title = stringResource(R.string.home_settings),
-                        subtitle = "Grid, gestures, dock & physics",
-                        iconContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        iconColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                        onClick = {
-                            onDismiss()
-                            onHomeSettingsClick()
-                        }
-                    )
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.98f),
+            tonalElevation = 10.dp,
+            shadowElevation = 20.dp,
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            ),
+            modifier = Modifier
+                .width(popupWidthDp)
+                .graphicsLayer {
+                    val p = menuEntrance.value
+                    val scale = 0.62f + 0.38f * p
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = (p * 1.35f).coerceIn(0f, 1f)
+                    transformOrigin = TransformOrigin(pivotX, pivotY)
+                    translationY = (1f - p) * (if (showAbove) 20.dp.toPx() else -20.dp.toPx())
                 }
+                .testTag("workspace_long_press_menu")
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(10.dp)
+            ) {
+                WorkspaceMenuActionTile(
+                    icon = Icons.Filled.Palette,
+                    title = stringResource(R.string.wallpaper_and_style),
+                    subtitle = "Colors, squircle shape & grid",
+                    iconContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    iconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    entranceProgressProvider = { menuEntrance.value },
+                    staggerIndex = 0,
+                    onClick = {
+                        onDismiss()
+                        onWallpaperAndStyleClick()
+                    }
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                WorkspaceMenuActionTile(
+                    icon = Icons.Filled.Widgets,
+                    title = stringResource(R.string.widgets_menu),
+                    subtitle = "At-a-Glance, clocks & shortcuts",
+                    iconContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    entranceProgressProvider = { menuEntrance.value },
+                    staggerIndex = 1,
+                    onClick = {
+                        onDismiss()
+                        onWidgetsClick()
+                    }
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                WorkspaceMenuActionTile(
+                    icon = Icons.Filled.Settings,
+                    title = stringResource(R.string.home_settings),
+                    subtitle = "Grid, gestures, dock & physics",
+                    iconContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    iconColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    entranceProgressProvider = { menuEntrance.value },
+                    staggerIndex = 2,
+                    onClick = {
+                        onDismiss()
+                        onHomeSettingsClick()
+                    }
+                )
             }
         }
     }
@@ -730,6 +714,8 @@ private fun WorkspaceMenuActionTile(
     subtitle: String,
     iconContainerColor: Color,
     iconColor: Color,
+    entranceProgressProvider: () -> Float = { 1f },
+    staggerIndex: Int = 0,
     onClick: () -> Unit
 ) {
     Surface(
@@ -737,6 +723,15 @@ private fun WorkspaceMenuActionTile(
         color = Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                val raw = entranceProgressProvider()
+                val delayed = ((raw - staggerIndex * 0.12f) / (1f - staggerIndex * 0.12f)).coerceIn(0f, 1.15f)
+                alpha = delayed.coerceIn(0f, 1f)
+                translationX = (1f - delayed) * (-16.dp.toPx())
+                val itemScale = 0.88f + 0.12f * delayed
+                scaleX = itemScale
+                scaleY = itemScale
+            }
             .clip(RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
     ) {
@@ -749,7 +744,7 @@ private fun WorkspaceMenuActionTile(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(SquircleShape(3.6f))
+                    .clip(SquircleShape(5.4f))
                     .background(iconContainerColor)
             ) {
                 Icon(
@@ -801,7 +796,8 @@ fun AppShortcutPopupDialog(
     val configuration = LocalConfiguration.current
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-    val popupWidthPx = with(density) { 276.dp.toPx() }
+    val popupWidthDp = (configuration.screenWidthDp - 32).coerceIn(224, 276).dp
+    val popupWidthPx = with(density) { popupWidthDp.toPx() }
     val estimatedPopupHeightPx = with(density) { 330.dp.toPx() }
 
     val rect = anchorRect ?: Rect(
@@ -824,188 +820,214 @@ fun AppShortcutPopupDialog(
     val pivotFractionX = ((rect.centerX() - popupX) / popupWidthPx).coerceIn(0.15f, 0.85f)
     val pivotFractionY = if (showAboveIcon) 1.0f else 0.0f
 
+    val popupEntrance = remember { Animatable(0f) }
+    LaunchedEffect(app.componentKey, anchorRect) {
+        popupEntrance.snapTo(0f)
+        popupEntrance.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f)
+        )
+    }
+
     Popup(
         offset = IntOffset(popupX, popupY),
         onDismissRequest = onDismiss
     ) {
-        AnimatedVisibility(
-            visible = true,
-            enter = scaleIn(
-                animationSpec = spring(dampingRatio = 0.74f, stiffness = 440f),
-                initialScale = 0.65f,
-                transformOrigin = TransformOrigin(pivotFractionX, pivotFractionY)
-            ) + fadeIn()
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 8.dp,
+            shadowElevation = 16.dp,
+            modifier = Modifier
+                .width(popupWidthDp)
+                .graphicsLayer {
+                    val p = popupEntrance.value
+                    val scale = 0.65f + 0.35f * p
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = (p * 1.35f).coerceIn(0f, 1f)
+                    transformOrigin = TransformOrigin(pivotFractionX, pivotFractionY)
+                }
+                .testTag("app_shortcut_popup")
         ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 8.dp,
-                shadowElevation = 16.dp,
-                modifier = Modifier
-                    .width(276.dp)
-                    .testTag("app_shortcut_popup")
-            ) {
-                Column(modifier = Modifier.padding(vertical = 10.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+            Column(modifier = Modifier.padding(vertical = 10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = app.label,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "Hold & drag",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Active Notification Banner inside Popup
+                if (app.notificationCount > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 4.dp)
+                            .padding(horizontal = 14.dp, vertical = 4.dp)
                     ) {
-                        Text(
-                            text = app.label,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "Hold & drag",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    // Active Notification Banner inside Popup
-                    if (app.notificationCount > 0) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Notifications,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = "${app.notificationCount} active notification${if (app.notificationCount > 1) "s" else ""}",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { onClearBadgeClick(app.packageName) },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close,
-                                        contentDescription = "Dismiss notification badge",
-                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Filled.Notifications,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "${app.notificationCount} active notification${if (app.notificationCount > 1) "s" else ""}",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                            IconButton(
+                                onClick = { onClearBadgeClick(app.packageName) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Dismiss notification badge",
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.size(14.dp)
+                                )
                             }
                         }
                     }
+                }
 
-                    app.shortcuts.forEach { shortcut ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onDismiss()
-                                    onShortcutClick(app, shortcut.id)
-                                }
-                                .padding(horizontal = 20.dp, vertical = 8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = shortcut.shortLabel,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                    )
-
-                    if (onAddToHomeClick != null) {
-                        PopupMenuItemRow(
-                            icon = Icons.Filled.Home,
-                            title = "Add to Home screen",
-                            onClick = {
+                app.shortcuts.forEach { shortcut ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
                                 onDismiss()
-                                onAddToHomeClick(app)
+                                onShortcutClick(app, shortcut.id)
                             }
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = shortcut.shortLabel,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
+                }
 
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+
+                if (onAddToHomeClick != null) {
+                    PopupMenuItemRow(
+                        icon = Icons.Filled.Home,
+                        title = "Add to Home screen",
+                        onClick = {
+                            onDismiss()
+                            onAddToHomeClick(app)
+                        }
+                    )
+                }
+
+                if (onRemoveFromHomeClick != null) {
+                    PopupMenuItemRow(
+                        icon = Icons.Outlined.DeleteOutline,
+                        title = "Remove from Home",
+                        onClick = {
+                            onDismiss()
+                            onRemoveFromHomeClick()
+                        }
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
                     if (onRemoveFromHomeClick != null) {
-                        PopupMenuItemRow(
-                            icon = Icons.Outlined.DeleteOutline,
-                            title = "Remove from Home",
+                        TextButton(
                             onClick = {
                                 onDismiss()
                                 onRemoveFromHomeClick()
-                            }
-                        )
+                            },
+                            modifier = Modifier.testTag("popup_quick_remove_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Remove",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Remove")
+                        }
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 2.dp)
+                    TextButton(
+                        onClick = {
+                            onDismiss()
+                            onAppInfoClick(app)
+                        }
                     ) {
-                        TextButton(
-                            onClick = {
-                                onDismiss()
-                                onAppInfoClick(app)
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Info,
-                                contentDescription = "App info",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("App info")
-                        }
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "App info",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("App info")
+                    }
 
-                        TextButton(
-                            onClick = {
-                                onDismiss()
-                                onUninstallClick(app)
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.DeleteOutline,
-                                contentDescription = "Uninstall",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Uninstall",
-                                color = MaterialTheme.colorScheme.error
-                            )
+                    TextButton(
+                        onClick = {
+                            onDismiss()
+                            onUninstallClick(app)
                         }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.DeleteOutline,
+                            contentDescription = "Uninstall",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Uninstall",
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
@@ -1078,7 +1100,9 @@ fun WidgetResizeAndRemoveDialog(
                 val sizes = listOf(2 to 1, 2 to 2, 3 to 1, 4 to 2, 5 to 2)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                 ) {
                     sizes.forEach { (sx, sy) ->
                         FilterChip(

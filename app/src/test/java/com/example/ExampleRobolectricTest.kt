@@ -18,11 +18,15 @@ class ExampleRobolectricTest {
     fun testLauncherSettingsDefaults() {
         val settings = LauncherSettings()
         assertEquals(IconShapePreset.SQUIRCLE, settings.iconShape)
+        assertEquals(5.4f, settings.squircleExponent, 0.01f)
         assertEquals(ThemeMode.AUTO, settings.themeMode)
         assertEquals(5, settings.gridColumns)
         assertEquals(5, settings.gridRows)
+        assertEquals(1, settings.homePageCount)
         assertEquals(4, settings.dockIconCount)
         assertEquals(false, settings.hasSeenWelcome)
+        assertEquals(false, settings.showWorkProfileTab)
+        assertEquals(true, settings.pageSwipeVibrationEnabled)
         assertEquals(TemperatureUnit.CELSIUS, settings.temperatureUnit)
         assertEquals(AppLanguage.SYSTEM, settings.appLanguage)
     }
@@ -30,9 +34,14 @@ class ExampleRobolectricTest {
     @Test
     fun testSettingsCopyPreservesValues() {
         val original = LauncherSettings()
-        val modified = original.copy(hasSeenWelcome = true, gridColumns = 6)
+        val modified = original.copy(
+            hasSeenWelcome = true,
+            gridColumns = 6,
+            pageSwipeVibrationEnabled = false
+        )
         assertEquals(true, modified.hasSeenWelcome)
         assertEquals(6, modified.gridColumns)
+        assertEquals(false, modified.pageSwipeVibrationEnabled)
         assertEquals(4, modified.dockIconCount)
     }
 

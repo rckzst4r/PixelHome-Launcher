@@ -72,6 +72,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -88,7 +89,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -241,17 +242,22 @@ fun LauncherScreen(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    val pageCount = max(settings.homePageCount, 2)
+    val pageCount = max(settings.homePageCount, 1)
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { pageCount }
     )
 
-    LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
+    var isInitialPageLoad by remember { mutableStateOf(true) }
+    LaunchedEffect(pagerState, settings.pageSwipeVibrationEnabled) {
+        snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect {
-                LauncherHaptics.performSnapOrTick(rootView, settings)
+                if (isInitialPageLoad) {
+                    isInitialPageLoad = false
+                } else if (settings.pageSwipeVibrationEnabled) {
+                    LauncherHaptics.performSnapOrTick(rootView, settings)
+                }
             }
     }
 
@@ -401,7 +407,7 @@ fun LauncherScreen(
     ) {
         val screenWidthPx = with(density) { maxWidth.toPx().coerceAtLeast(1f) }
         val screenHeightPx = with(density) { maxHeight.toPx().coerceAtLeast(1f) }
-        val topDropZoneBottomPx = with(density) { (statusBarTop + 92.dp).toPx() }
+        val topDropZoneBottomPx = with(density) { (statusBarTop + 140.dp).toPx() }
 
         // Automatic Device Form-Factor Detection (Tablet / Unfolded Foldable vs Phone)
         val configuration = LocalConfiguration.current
@@ -463,6 +469,10 @@ fun LauncherScreen(
                 }
         )
 
+        val isVerticalGestureBlocked by rememberUpdatedState(
+            dragSession != null || uiState.activePopupApp != null
+        )
+
         // 2. Home Workspace Layer (Phone Single-Pane or Tablet Dual-Pane Spread)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -482,8 +492,10 @@ fun LauncherScreen(
                     scaleY = s
                     translationY = -p * 36.dp.toPx()
                 }
-                .pointerInput(settings.swipeUpAction, settings.swipeDownAction, dragSession != null) {
-                    if (dragSession != null) return@pointerInput
+                .pointerInput(
+                    settings.swipeUpAction,
+                    settings.swipeDownAction
+                ) {
                     val velocityTracker = VelocityTracker()
                     var totalDy = 0f
                     detectVerticalDragGestures(
@@ -492,6 +504,7 @@ fun LauncherScreen(
                             totalDy = 0f
                         },
                         onVerticalDrag = { change, dragAmount ->
+                            if (isVerticalGestureBlocked) return@detectVerticalDragGestures
                             velocityTracker.addPosition(change.uptimeMillis, change.position)
                             totalDy += dragAmount
                             if (settings.swipeUpAction == LauncherGestureAction.DRAWER ||
@@ -508,6 +521,7 @@ fun LauncherScreen(
                             }
                         },
                         onDragEnd = {
+                            if (isVerticalGestureBlocked) return@detectVerticalDragGestures
                             val vy = velocityTracker.calculateVelocity().y
                             if (drawerProgress.value > 0.01f) {
                                 val open = vy < -420f || (drawerProgress.value > 0.24f && vy < 420f)
@@ -929,6 +943,10 @@ fun LauncherScreen(
                     LauncherHaptics.performLongPress(rootView, settings)
                     onAppLongClick(app, null, rect)
                 },
+                onRemoveFolder = {
+                    onRemoveHomeItem(folderItem.id)
+                    onCloseFolder()
+                },
                 onDismiss = onCloseFolder
             )
         }
@@ -943,10 +961,12 @@ fun LauncherScreen(
             onHomeSettingsClick = onOpenQuickSettings
         )
 
-        // 5B. Cute Welcome & Onboarding Dialog
+        // 5B. First-Launch Welcome & Basic Customization Setup Dialog
         PixelWelcomeScreenDialog(
             visible = showWelcomeScreen && !settings.hasSeenWelcome,
             isDefaultHome = uiState.isDefaultHomeApp,
+            settings = settings,
+            onUpdateSettings = onUpdateSettings,
             onRequestSetDefaultHome = onRequestRoleHome,
             onGetStarted = {
                 LauncherHaptics.performGestureConfirm(rootView, settings)
@@ -970,7 +990,12 @@ fun LauncherScreen(
             onClearBadgeClick = onClearBadgeForPackage,
             onAppInfoClick = onAppInfoClick,
             onAddToHomeClick = if (uiState.activePopupHomeItemId == null) {
-                { app -> onAddAppToHome(app, pagerState.currentPage) }
+                { app ->
+                    onAddAppToHome(app, pagerState.currentPage)
+                    if (drawerProgress.value > 0.01f) {
+                        animateDrawerTo(0f)
+                    }
+                }
             } else null,
             onRemoveFromHomeClick = uiState.activePopupHomeItemId?.let { itemId ->
                 { onRemoveHomeItem(itemId) }
@@ -1037,15 +1062,7 @@ fun LauncherScreen(
             settings = settings
         )
 
-        // 11. Spring App Open / App Close Morph Window Overlay
-        AppWindowMorphOverlay(
-            morphState = activeMorphState,
-            iconCache = iconCache,
-            settings = settings,
-            onAnimationFinished = onMorphAnimationFinished
-        )
-
-        // 12. Double-Tap Screen Lock Always-On-Display Overlay
+        // 11. Double-Tap Screen Lock Always-On-Display Overlay
         SimulatedScreenLockOverlay(
             visible = isScreenLockOverlayVisible,
             isAccessibilityConnected = PixelLockAccessibilityService.isConnected,
@@ -1174,7 +1191,7 @@ private fun WorkspacePageGrid(
                 alpha = ((1f - abs(pageOff) * 0.22f) * wave.coerceIn(0f, 1f)).coerceIn(0.45f, 1f)
                 translationY = (1f - wave) * 18.dp.toPx()
             }
-            .onGloballyPositioned { coords ->
+            .onPlaced { coords ->
                 gridCoordsHolder.coords = coords
             }
             .pointerInput(Unit) {
@@ -1219,129 +1236,143 @@ private fun WorkspacePageGrid(
             )
         }
 
-        Column(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .onGloballyPositioned { coords ->
+                .onPlaced { coords ->
                     if (coords.isAttached) {
                         val b = coords.boundsInWindow()
                         onGridBoundsMeasured(b.top, b.bottom)
                     }
                 }
         ) {
-            for (r in startRow until rows) {
-                Row(
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    for (c in 0 until cols) {
-                        val cellItem = nonWidgetItemsByCell[c to r]
-                        val isHoveredTargetCell = dragSession != null &&
-                            dragSession.hoveredCellX == c &&
-                            dragSession.hoveredCellY == r
+            val activeRowCount = (rows - startRow).coerceAtLeast(1)
+            val cellWidth = maxWidth / cols.coerceAtLeast(1)
+            val cellHeight = maxHeight / activeRowCount
+            val labelSpace = if (settings.showHomeLabels) 22.dp else 6.dp
+            val adaptiveBaseIconSize = minOf(
+                56.dp,
+                (cellWidth - 8.dp).coerceAtLeast(34.dp),
+                (cellHeight - labelSpace).coerceAtLeast(34.dp)
+            )
 
-                        val cellModifier = if (dragSession != null) {
-                            val reflowTarget = cellItem?.id?.let { dragSession.reflowPreviewOffsets[it] }
-                            val reflowDelta by animateOffsetAsState(
-                                targetValue = if (reflowTarget != null) {
-                                    Offset(
-                                        (reflowTarget.x - c).toFloat(),
-                                        (reflowTarget.y - r).toFloat()
-                                    )
-                                } else {
-                                    Offset.Zero
-                                },
-                                animationSpec = LauncherPhysics.springSpec(settings, context),
-                                label = "NeighborReflowSpring"
-                            )
-                            Modifier
-                                .weight(1f)
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    if (reflowDelta != Offset.Zero) {
-                                        translationX = reflowDelta.x * size.width
-                                        translationY = reflowDelta.y * size.height
-                                    }
-                                }
-                        } else {
-                            Modifier
-                                .weight(1f)
-                                .fillMaxSize()
-                        }
+            Column(modifier = Modifier.fillMaxSize()) {
+                for (r in startRow until rows) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        for (c in 0 until cols) {
+                            val cellItem = nonWidgetItemsByCell[c to r]
+                            val isHoveredTargetCell = dragSession != null &&
+                                dragSession.hoveredCellX == c &&
+                                dragSession.hoveredCellY == r
 
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = cellModifier
-                        ) {
-                            if (isHoveredTargetCell &&
-                                (dragSession?.hoverMode == WorkspaceHoverMode.EMPTY_CELL ||
-                                    dragSession?.hoverMode == WorkspaceHoverMode.REFLOW_NEIGHBOR)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size((56.dp * settings.iconSizeScale))
-                                        .border(
-                                            width = 2.dp,
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                            shape = squircleShape
+                            val cellModifier = if (dragSession != null) {
+                                val reflowTarget = cellItem?.id?.let { dragSession.reflowPreviewOffsets[it] }
+                                val reflowDelta by animateOffsetAsState(
+                                    targetValue = if (reflowTarget != null) {
+                                        Offset(
+                                            (reflowTarget.x - c).toFloat(),
+                                            (reflowTarget.y - r).toFloat()
                                         )
-                                        .graphicsLayer {
-                                            clip = true
-                                            shape = squircleShape
-                                        }
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+                                    } else {
+                                        Offset.Zero
+                                    },
+                                    animationSpec = LauncherPhysics.springSpec(settings, context),
+                                    label = "NeighborReflowSpring"
                                 )
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        if (reflowDelta != Offset.Zero) {
+                                            translationX = reflowDelta.x * size.width
+                                            translationY = reflowDelta.y * size.height
+                                        }
+                                    }
+                            } else {
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxSize()
                             }
 
-                            if (cellItem != null) {
-                                val isMergeTarget = isHoveredTargetCell &&
-                                    dragSession?.hoverMode == WorkspaceHoverMode.MERGE_FOLDER
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = cellModifier
+                            ) {
+                                if (isHoveredTargetCell &&
+                                    (dragSession?.hoverMode == WorkspaceHoverMode.EMPTY_CELL ||
+                                        dragSession?.hoverMode == WorkspaceHoverMode.REFLOW_NEIGHBOR)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size((adaptiveBaseIconSize * settings.iconSizeScale))
+                                            .border(
+                                                width = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                shape = squircleShape
+                                            )
+                                            .graphicsLayer {
+                                                clip = true
+                                                shape = squircleShape
+                                            }
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+                                    )
+                                }
 
-                                when (cellItem.itemType) {
-                                    HomeCellItemType.FOLDER.name -> {
-                                        val members = cellItem.folderMemberKeys.mapNotNull { appsByKey[it] }
-                                        SquircleFolderTile(
-                                            title = cellItem.title.ifBlank { "Folder" },
-                                            memberApps = members,
-                                            iconCache = iconCache,
-                                            settings = settings,
-                                            isFolderMergeHighlighted = isMergeTarget,
-                                            onClick = { onFolderClick(cellItem) }
-                                        )
-                                    }
-                                    else -> {
-                                        val app = appsByKey[cellItem.componentKey]
-                                        if (app != null) {
-                                            val isDraggedOrigin = dragSession?.sourceHomeItemId == cellItem.id
-                                            SquircleAppIcon(
-                                                app = app,
+                                if (cellItem != null) {
+                                    val isMergeTarget = isHoveredTargetCell &&
+                                        dragSession?.hoverMode == WorkspaceHoverMode.MERGE_FOLDER
+
+                                    when (cellItem.itemType) {
+                                        HomeCellItemType.FOLDER.name -> {
+                                            val members = cellItem.folderMemberKeys.mapNotNull { appsByKey[it] }
+                                            SquircleFolderTile(
+                                                title = cellItem.title.ifBlank { "Folder" },
+                                                memberApps = members,
                                                 iconCache = iconCache,
                                                 settings = settings,
-                                                showLabel = settings.showHomeLabels,
-                                                useThemedIcon = settings.themedIconsEnabled,
-                                                isBeingDragged = isDraggedOrigin,
+                                                baseIconSize = adaptiveBaseIconSize,
                                                 isFolderMergeHighlighted = isMergeTarget,
-                                                onClick = onAppClick,
-                                                onLongClick = { clickedApp, rect ->
-                                                    onAppLongClick(clickedApp, cellItem.id, rect)
-                                                },
-                                                onDragStartFromIcon = { draggedApp, rect, winOffset ->
-                                                    onStartDragFromCell(
-                                                        draggedApp,
-                                                        cellItem.id,
-                                                        c,
-                                                        r,
-                                                        rect,
-                                                        winOffset
-                                                    )
-                                                },
-                                                onDragMoveWindowOffset = onDragMove,
-                                                onDragFinish = onDragEnd
+                                                onClick = { onFolderClick(cellItem) }
                                             )
+                                        }
+                                        else -> {
+                                            val app = appsByKey[cellItem.componentKey]
+                                            if (app != null) {
+                                                val isDraggedOrigin = dragSession?.sourceHomeItemId == cellItem.id
+                                                SquircleAppIcon(
+                                                    app = app,
+                                                    iconCache = iconCache,
+                                                    settings = settings,
+                                                    showLabel = settings.showHomeLabels,
+                                                    useThemedIcon = settings.themedIconsEnabled,
+                                                    baseIconSize = adaptiveBaseIconSize,
+                                                    isBeingDragged = isDraggedOrigin,
+                                                    isFolderMergeHighlighted = isMergeTarget,
+                                                    onClick = onAppClick,
+                                                    onLongClick = { clickedApp, rect ->
+                                                        onAppLongClick(clickedApp, cellItem.id, rect)
+                                                    },
+                                                    onDragStartFromIcon = { draggedApp, rect, winOffset ->
+                                                        onStartDragFromCell(
+                                                            draggedApp,
+                                                            cellItem.id,
+                                                            c,
+                                                            r,
+                                                            rect,
+                                                            winOffset
+                                                        )
+                                                    },
+                                                    onDragMoveWindowOffset = onDragMove,
+                                                    onDragFinish = onDragEnd
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1396,8 +1427,10 @@ private fun HotseatDockRow(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
         modifier = dockModifier
-            .onGloballyPositioned { coords ->
-                onHotseatTopMeasured(coords.boundsInWindow().top)
+            .onPlaced { coords ->
+                if (coords.isAttached) {
+                    onHotseatTopMeasured(coords.boundsInWindow().top)
+                }
             }
             .graphicsLayer {
                 val p = drawerProgressProvider().coerceIn(0f, 1f)
@@ -1455,6 +1488,7 @@ private fun ExpandedFolderDialog(
     onToggleAppMembership: (String) -> Unit,
     onAppClick: (AppInfo, Rect) -> Unit,
     onAppLongClick: (AppInfo, Rect) -> Unit,
+    onRemoveFolder: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1618,21 +1652,38 @@ private fun ExpandedFolderDialog(
                     HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    OutlinedButton(
-                        onClick = { isEditingMembers = !isEditingMembers },
-                        modifier = Modifier.testTag("folder_manage_apps_button")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = if (isEditingMembers) Icons.Filled.Check else Icons.Filled.Add,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (isEditingMembers) "Done" else "Add / Manage Apps",
-                            color = Color.White
-                        )
+                        OutlinedButton(
+                            onClick = { isEditingMembers = !isEditingMembers },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("folder_manage_apps_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isEditingMembers) Icons.Filled.Check else Icons.Filled.Add,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isEditingMembers) "Done" else "Manage Apps",
+                                color = Color.White
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = onRemoveFolder,
+                            modifier = Modifier.testTag("folder_remove_button")
+                        ) {
+                            Text(
+                                text = "Remove Folder",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }

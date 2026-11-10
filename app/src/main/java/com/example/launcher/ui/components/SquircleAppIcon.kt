@@ -37,7 +37,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -49,7 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -74,9 +73,16 @@ import com.example.ui.theme.parseHexColorSafe
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
+private val IconShadowColor = Color.Black.copy(alpha = 0.35f)
+private val HomeLabelShadow = Shadow(
+    color = Color.Black.copy(alpha = 0.65f),
+    offset = Offset(0f, 1.5f),
+    blurRadius = 4f
+)
+
 /**
  * Plain non-observable holder for [LayoutCoordinates] so scrolling in `LazyVerticalGrid` or
- * `HorizontalPager` never triggers Snapshot state writes or recompositions on `onGloballyPositioned`.
+ * `HorizontalPager` never triggers Snapshot state writes or per-frame global position callbacks.
  * Screen bounds are computed lazily only when the user actually taps, long-presses, or drags an icon.
  */
 private class IconLayoutCoordsHolder(var coords: LayoutCoordinates? = null) {
@@ -228,8 +234,10 @@ fun SquircleAppIcon(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = { onClick(app, coordsHolder.resolveScreenRect()) },
-                onLongClick = {
-                    onLongClick?.invoke(app, coordsHolder.resolveScreenRect())
+                onLongClick = if (onDragStartFromIcon == null && onLongClick != null) {
+                    { onLongClick.invoke(app, coordsHolder.resolveScreenRect()) }
+                } else {
+                    null
                 }
             )
             .then(
@@ -241,13 +249,13 @@ fun SquircleAppIcon(
                         var startRect = Rect(200, 400, 360, 560)
 
                         detectDragGesturesAfterLongPress(
-                            onDragStart = { localOffset ->
+                            onDragStart = { _ ->
                                 dragEngaged = false
                                 accumulatedDrag = Offset.Zero
                                 startRect = coordsHolder.resolveScreenRect()
                                 currentWindowPos = Offset(
-                                    startRect.left + localOffset.x,
-                                    startRect.top + localOffset.y
+                                    startRect.exactCenterX(),
+                                    startRect.exactCenterY()
                                 )
                                 onLongClick?.invoke(app, startRect)
                             },
@@ -255,7 +263,7 @@ fun SquircleAppIcon(
                                 change.consume()
                                 accumulatedDrag += dragAmount
                                 currentWindowPos += dragAmount
-                                if (!dragEngaged && hypot(accumulatedDrag.x, accumulatedDrag.y) > 14.dp.toPx()) {
+                                if (!dragEngaged && hypot(accumulatedDrag.x, accumulatedDrag.y) > 18.dp.toPx()) {
                                     dragEngaged = true
                                     onDragStartFromIcon(app, startRect, currentWindowPos)
                                 }
@@ -287,7 +295,7 @@ fun SquircleAppIcon(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(effectiveIconSize)
-                .onGloballyPositioned { coords ->
+                .onPlaced { coords ->
                     coordsHolder.coords = coords
                 }
         ) {
@@ -309,23 +317,16 @@ fun SquircleAppIcon(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (settings.iconShadowEnabled) {
-                            Modifier.shadow(
-                                elevation = 4.dp,
-                                shape = squircleShape,
-                                ambientColor = Color.Black.copy(alpha = 0.35f),
-                                spotColor = Color.Black.copy(alpha = 0.35f)
-                            )
-                        } else {
-                            Modifier
-                        }
-                    )
                     .graphicsLayer {
                         scaleX = pressScale
                         scaleY = pressScale
                         clip = true
                         shape = squircleShape
+                        if (settings.iconShadowEnabled) {
+                            shadowElevation = 4.dp.toPx()
+                            ambientShadowColor = IconShadowColor
+                            spotShadowColor = IconShadowColor
+                        }
                     }
                     .then(
                         if (isPressed) {
@@ -405,29 +406,30 @@ fun SquircleAppIcon(
         }
 
         if (showLabel) {
-            Spacer(modifier = Modifier.height(5.dp))
-            Text(
-                text = displayLabel,
-                style = MaterialTheme.typography.labelMedium.copy(
+            val baseLabelStyle = MaterialTheme.typography.labelMedium
+            val hasShadow = enableLabelShadow && (
+                settings.labelColorMode == LabelColorMode.WALLPAPER_ADAPTIVE ||
+                    settings.labelColorMode == LabelColorMode.LIGHT
+                )
+            val labelTextStyle = remember(
+                baseLabelStyle,
+                settings.labelFontSizeSp,
+                labelColor,
+                hasShadow
+            ) {
+                baseLabelStyle.copy(
                     fontSize = settings.labelFontSizeSp.sp,
                     color = labelColor,
-                    shadow = if (enableLabelShadow && (
-                            settings.labelColorMode == LabelColorMode.WALLPAPER_ADAPTIVE ||
-                                settings.labelColorMode == LabelColorMode.LIGHT
-                            )
-                    ) {
-                        Shadow(
-                            color = Color.Black.copy(alpha = 0.65f),
-                            offset = Offset(0f, 1.5f),
-                            blurRadius = 4f
-                        )
-                    } else {
-                        null
-                    }
-                ),
+                    shadow = if (hasShadow) HomeLabelShadow else null
+                )
+            }
+            Text(
+                text = displayLabel,
+                style = labelTextStyle,
                 maxLines = settings.labelMaxLines.coerceIn(1, 2),
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 5.dp)
             )
         }
     }

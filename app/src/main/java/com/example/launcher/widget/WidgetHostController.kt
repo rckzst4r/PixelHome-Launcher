@@ -34,6 +34,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,6 +74,7 @@ enum class BuiltInPixelWidgetType(
     PIXEL_BATTERY("builtin:pixel_battery", "Battery", "Live battery level & charging status", 3, 1)
 }
 
+@Immutable
 data class SystemWidgetCandidate(
     val providerInfo: AppWidgetProviderInfo,
     val label: String,
@@ -87,6 +90,7 @@ data class SystemWidgetCandidate(
  * Manages [AppWidgetHost] (`HOST_ID = 1024`) and [AppWidgetManager] lifecycle,
  * widget ID allocation, binding, configuration intents, and host view creation.
  */
+@Stable
 class WidgetHostController(private val context: Context) {
 
     val appWidgetManager: AppWidgetManager = AppWidgetManager.getInstance(context)
